@@ -21,11 +21,19 @@ class CustomerSaleBrief(Schema):
     paid_at: datetime
 
 
+class OpCustomerPrizeOut(CardPrizeOut):
+    """Active prize as seen by the operator: includes the catalog value so the
+    sale screen can show an estimated discount (the sale still computes it)."""
+
+    value: int
+    max_value_cop: int | None
+
+
 class CustomerDetailOut(Schema):
     id: UUID
     alias: str
     phone_last4: str
     purchases: int
     milestone_every: int
-    active_prizes: list[CardPrizeOut]
+    active_prizes: list[OpCustomerPrizeOut]
     sales: list[CustomerSaleBrief]

@@ -37,6 +37,8 @@ async def detail(customer_id: UUID, ctx: CurrentOperator, db: DbSession):
                 "type": prize.type,
                 "awarded_at": award.awarded_at,
                 "expires_at": award.expires_at,
+                "value": prize.value,
+                "max_value_cop": prize.max_value_cop,
             }
             for award, prize in await customers.active_prizes(db, customer.id)
         ],

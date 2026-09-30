@@ -356,3 +356,20 @@ async def test_catalog_owner_only(owner, operator):
     r = await owner.get("/api/op/prizes/catalog")
     assert r.status_code == 200
     assert [p["weight"] for p in r.json()] == [40, 25, 20, 10, 5]
+
+
+async def test_customer_detail_includes_prize_value_for_estimates(
+    owner, open_workday, seeded, owner_conn, customer_client, rng
+):
+    """The operator sees value/max_value_cop to show an estimated discount."""
+    customer_id, award_id, _ = await customer_with_prize(
+        owner, seeded, owner_conn, customer_client, rng, "10% de descuento"
+    )
+    body = (await owner.get(f"/api/op/customers/{customer_id}")).json()
+    [prize] = body["active_prizes"]
+    assert prize["id"] == award_id
+    assert prize["value"] == 10
+    assert prize["max_value_cop"] == 16000
+    # The customer's own card does not expose catalog values.
+    card = (await customer_client.get("/api/c/me")).json()
+    assert "value" not in card["active_prizes"][0]
