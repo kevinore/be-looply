@@ -12,6 +12,19 @@ RUNTIME_URL = "postgresql://app_runtime:runtime@localhost:5433/app_test"
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
+# The app under test connects as app_runtime, like in production (section 13).
+# Set before any `app` import so Settings picks these values.
+os.environ.update(
+    APP_ENV="test",
+    DATABASE_URL=RUNTIME_URL,
+    PUBLIC_APP_URL="http://localhost:5173",
+    ALLOWED_ORIGINS="http://localhost:5173",
+    COOKIE_SECURE="false",
+    DEFAULT_BUSINESS_SLUG="test-biz",
+    PRIVACY_POLICY_VERSION="test-v1",
+    SENTRY_DSN="",
+)
+
 
 @pytest.fixture(scope="session")
 def migrated_db() -> None:
