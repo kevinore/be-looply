@@ -17,8 +17,16 @@ from app.api.op import workdays as op_workdays
 from app.core.config import settings
 from app.core.errors import register_error_handlers
 
+SENTRY_OPTIONS = {
+    # Never send request bodies (passwords, phones) or personal data to Sentry.
+    "max_request_body_size": "never",
+    "send_default_pii": False,
+}
+
 if settings.SENTRY_DSN:
-    sentry_sdk.init(dsn=settings.SENTRY_DSN, environment=settings.APP_ENV)
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN, environment=settings.APP_ENV, **SENTRY_OPTIONS
+    )
 
 is_production = settings.APP_ENV == "production"
 
