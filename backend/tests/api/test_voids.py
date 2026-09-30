@@ -155,20 +155,60 @@ async def test_void_sale_that_completed_milestone(
     assert (await customer_client.get("/api/c/me")).json()["purchases"] == 4
 
 
-async def test_void_leaves_redeemed_prize(
+async def test_void_sale_that_won_and_used_the_prize(
     owner, open_workday, seeded, owner_conn, customer_client, rng
 ):
+    """Owner decision: prize won from this sale and redeemed on it -> prize void."""
     _, award_id, sale_id = await customer_with_prize(
         owner, seeded, owner_conn, customer_client, rng, "Cold foam o topping extra"
     )
     await owner.post(
         f"/api/op/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
     )
-    # Void the sale that unlocked the spin AND used the prize.
     await void(owner, sale_id)
+    row = owner_conn.execute(
+        "SELECT status, voided_at IS NOT NULL, redeemed_at, redeemed_sale_id, redeemed_by "
+        "FROM prize_award"
+    ).fetchone()
+    assert row == ("void", True, None, None, None)
+    assert [s[2] for s in spins(owner_conn)] == ["void"]
+    payload = owner_conn.execute(
+        "SELECT payload FROM event WHERE type = 'prize_voided'"
+    ).fetchone()[0]
+    assert payload["previous_status"] == "redeemed"
+    assert payload["redeemed_sale_id"] == sale_id
+    assert events(owner_conn, "prize_restored") == 0
+    assert events(owner_conn, "void_left_redeemed_prize") == 0
+    assert (await customer_client.get("/api/c/me")).json()["active_prizes"] == []
+    # The prize line stays on the void sale as history.
+    detail = (await owner.get(f"/api/op/sales/{sale_id}")).json()
+    assert detail["items"][1]["prize_award_id"] == award_id
+
+
+async def test_void_leaves_prize_redeemed_on_another_sale(
+    owner, open_workday, seeded, owner_conn, customer_client, rng
+):
+    """11.8 step 3: prize won from this sale but used on another -> untouched."""
+    customer_id, award_id, welcome_sale = await customer_with_prize(
+        owner, seeded, owner_conn, customer_client, rng, "Cold foam o topping extra"
+    )
+    berry = seeded.products["Berry Bliss"]
+    other = (
+        await sell(
+            owner,
+            [(berry, 1)],
+            customer_id=customer_id,
+            prize_award_id=award_id,
+            prize_target_product_id=berry,
+        )
+    ).json()
+    await void(owner, welcome_sale)
+    row = owner_conn.execute(
+        "SELECT status, redeemed_sale_id::text FROM prize_award"
+    ).fetchone()
+    assert row == ("redeemed", other["id"])
+    assert [s[2] for s in spins(owner_conn)] == ["consumed"]
     assert events(owner_conn, "void_left_redeemed_prize") == 1
-    # Step 4 still restores the prize used in this sale.
-    assert prize_status(owner_conn, award_id) == "active"
 
 
 async def test_operator_cannot_void_closed_workday_sale(

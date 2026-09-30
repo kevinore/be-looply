@@ -44,16 +44,28 @@ async def cascade_spins(db: AsyncSession, sale: Sale, operator: Operator) -> Non
                 for_update(select(PrizeAward).where(PrizeAward.spin_id == spin.id))
             )
         ).scalar_one_or_none()
-        if award is not None and award.status == "active":
+        # Decision beyond the plan (confirmed by the owner): a prize won from this
+        # sale AND redeemed on this same sale is voided too, not restored in step 4.
+        used_here = award is not None and award.redeemed_sale_id == sale.id
+        if award is not None and (award.status == "active" or used_here):
+            previous_status = award.status
             award.status = "void"
             award.voided_at = now
+            # CHECK: only 'redeemed' may have all redemption fields set.
+            award.redeemed_at = None
+            award.redeemed_sale_id = None
+            award.redeemed_by = None
             _void_spin(spin, now)
             await db.flush()
             await emit_event(
                 db,
                 type="prize_voided",
                 actor="system",
-                payload={"prize_award_id": str(award.id)},
+                payload={
+                    "prize_award_id": str(award.id),
+                    "previous_status": previous_status,
+                    "redeemed_sale_id": str(sale.id) if used_here else None,
+                },
                 **common,
             )
             await emit_event(
@@ -64,7 +76,7 @@ async def cascade_spins(db: AsyncSession, sale: Sale, operator: Operator) -> Non
                 **common,
             )
         elif award is not None and award.status == "redeemed":
-            # Already used: never touched. Audit only.
+            # Already used on another sale: never touched. Audit only.
             await emit_event(
                 db,
                 type="void_left_redeemed_prize",
