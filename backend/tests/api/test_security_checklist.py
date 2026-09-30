@@ -281,7 +281,7 @@ async def test_unmapped_integrity_error_hides_postgres_message(
 
 # --- app_runtime without DELETE and without UPDATE on event (check_grants.py) ---------
 def test_check_grants_passes(migrated_db):
-    assert all(denied for _, denied in check_grants(RUNTIME_URL))
+    assert all(ok for _, ok in check_grants(RUNTIME_URL))
 
 
 def test_check_grants_detects_a_leaked_privilege(owner_conn):
@@ -293,6 +293,31 @@ def test_check_grants_detects_a_leaked_privilege(owner_conn):
         assert results["DELETE sale"] is True
     finally:
         owner_conn.execute("REVOKE DELETE ON product FROM app_runtime")
+        owner_conn.commit()
+
+
+def test_check_grants_detects_inherited_privileges(owner_conn):
+    """Reproduces Neon: Console roles inherit pg_write_all_data via neon_superuser."""
+    owner_conn.execute("GRANT pg_write_all_data TO app_runtime")
+    owner_conn.commit()
+    try:
+        results = dict(check_grants(RUNTIME_URL))
+        assert results["DELETE sale"] is False
+        assert results["UPDATE event"] is False
+        assert results["no inherited roles ['pg_write_all_data']"] is False
+    finally:
+        owner_conn.execute("REVOKE pg_write_all_data FROM app_runtime")
+        owner_conn.commit()
+
+
+def test_check_grants_detects_role_attributes(owner_conn):
+    owner_conn.execute("ALTER ROLE app_runtime CREATEROLE")
+    owner_conn.commit()
+    try:
+        results = dict(check_grants(RUNTIME_URL))
+        assert results["no SUPERUSER/CREATEROLE/CREATEDB/BYPASSRLS"] is False
+    finally:
+        owner_conn.execute("ALTER ROLE app_runtime NOCREATEROLE")
         owner_conn.commit()
 
 

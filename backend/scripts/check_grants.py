@@ -36,7 +36,7 @@ CHECKS = [(f"DELETE {t}", f"DELETE FROM {t} WHERE false") for t in TABLES] + [
 
 
 def check_grants(url: str) -> list[tuple[str, bool]]:
-    """Returns (label, denied) for each check. Nothing is ever committed."""
+    """Returns (label, ok) for each check. Nothing is ever committed."""
     results = []
     with psycopg.connect(url, autocommit=True) as conn:
         user = conn.execute("SELECT current_user").fetchone()[0]
@@ -52,6 +52,23 @@ def check_grants(url: str) -> list[tuple[str, bool]]:
             except psycopg.errors.InsufficientPrivilege:
                 denied = True
             results.append((label, denied))
+        # Privileges can also be inherited: on Neon, Console-created roles join
+        # neon_superuser (pg_write_all_data = DELETE everywhere). It must be alone.
+        inherited = [
+            r
+            for (r,) in conn.execute(
+                "SELECT r.rolname FROM pg_auth_members m "
+                "JOIN pg_roles r ON r.oid = m.roleid "
+                "JOIN pg_roles u ON u.oid = m.member "
+                "WHERE u.rolname = current_user ORDER BY 1"
+            )
+        ]
+        results.append((f"no inherited roles {inherited or ''}".strip(), not inherited))
+        attrs = conn.execute(
+            "SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolbypassrls "
+            "FROM pg_roles WHERE rolname = current_user"
+        ).fetchone()[0]
+        results.append(("no SUPERUSER/CREATEROLE/CREATEDB/BYPASSRLS", not attrs))
     return results
 
 
@@ -60,12 +77,15 @@ def main() -> None:
     if not url:
         sys.exit("DATABASE_URL is not set")
     results = check_grants(url)
-    for label, denied in results:
-        print(
-            f"{'OK  ' if denied else 'FAIL'} {label}: "
-            f"{'permiso denegado' if denied else 'PERMITIDO'}"
-        )
-    if not all(denied for _, denied in results):
+    for label, ok in results:
+        if label.startswith("no "):
+            print(f"{'OK  ' if ok else 'FAIL'} {label}")
+        else:
+            print(
+                f"{'OK  ' if ok else 'FAIL'} {label}: "
+                f"{'permiso denegado' if ok else 'PERMITIDO'}"
+            )
+    if not all(ok for _, ok in results):
         sys.exit("app_runtime has privileges it must not have")
     print("All checks passed: app_runtime cannot delete data nor edit events.")
 
