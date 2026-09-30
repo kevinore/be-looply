@@ -321,3 +321,24 @@ def add_past_purchases(conn, seeded, customer_id, n: int) -> None:
         (seeded.business_id, customer_id, first_sale),
     )
     conn.commit()
+
+
+async def customer_with_prize(
+    owner, seeded, conn, c, rng, prize_name, phone="3101234567"
+):
+    """Register a customer through a real sale and spin the welcome spin.
+
+    Returns (customer_id, prize_award_id, sale_id of the welcome sale).
+    """
+    rng(prize_name)
+    sale = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
+    body = (await register(c, claim_token(conn, sale["id"]), phone=phone)).json()
+    spin_id = body["new_spins"][0]["id"]
+    award = (await c.post(f"/api/c/spins/{spin_id}/spin")).json()["prize_award"]
+    return body["card"]["customer"]["id"], award["id"], sale["id"]
+
+
+def prize_status(conn, award_id) -> str:
+    return conn.execute(
+        "SELECT status FROM prize_award WHERE id = %s", (str(award_id),)
+    ).fetchone()[0]
