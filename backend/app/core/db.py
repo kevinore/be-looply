@@ -3,6 +3,7 @@ from typing import Annotated
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import Depends
+from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -54,3 +55,11 @@ async def get_db() -> AsyncIterator[AsyncSession]:
 
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
+
+
+def for_update(stmt: Select) -> Select:
+    """SELECT ... FOR UPDATE, refreshing objects already loaded in the session.
+
+    Lock order, always: sale -> customer -> spin -> prize_award (section 11).
+    """
+    return stmt.with_for_update().execution_options(populate_existing=True)

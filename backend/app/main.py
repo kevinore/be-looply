@@ -3,6 +3,7 @@ from fastapi import FastAPI
 
 from app.api import health
 from app.api.deps import origin_check_middleware
+from app.api.op import auth as op_auth
 from app.core.config import settings
 from app.core.errors import register_error_handlers
 
@@ -23,3 +24,4 @@ register_error_handlers(app)
 app.middleware("http")(origin_check_middleware)
 
 app.include_router(health.router)
+app.include_router(op_auth.router)
