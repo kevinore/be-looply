@@ -208,3 +208,27 @@ def weather_api(monkeypatch, owner_conn, seeded):
 
     monkeypatch.setattr(weather, "TRANSPORT", httpx.MockTransport(handler))
     return {"calls": calls, "state": state}
+
+
+async def sell(client, items: list[tuple[UUID, int]], *, key=None, **extra):
+    """POST /api/op/sales with a fresh Idempotency-Key (unless given)."""
+    from uuid import uuid4
+
+    body = {
+        "items": [{"product_id": str(p), "qty": q} for p, q in items],
+        "payment_method": extra.pop("payment_method", "cash"),
+        **{k: (str(v) if v is not None else None) for k, v in extra.items()},
+    }
+    return await client.post(
+        "/api/op/sales", json=body, headers={"Idempotency-Key": str(key or uuid4())}
+    )
+
+
+def make_customer(conn, business_id, phone="+573101234567", alias="Ana") -> UUID:
+    customer_id = conn.execute(
+        "INSERT INTO customer (business_id, phone, alias, consent_at, consent_version) "
+        "VALUES (%s, %s, %s, now(), 'test-v1') RETURNING id",
+        (business_id, phone, alias),
+    ).fetchone()[0]
+    conn.commit()
+    return customer_id

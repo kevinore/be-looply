@@ -4,7 +4,9 @@ from fastapi import FastAPI
 from app.api import health
 from app.api.deps import origin_check_middleware
 from app.api.op import auth as op_auth
+from app.api.op import customers as op_customers
 from app.api.op import products as op_products
+from app.api.op import sales as op_sales
 from app.api.op import workdays as op_workdays
 from app.core.config import settings
 from app.core.errors import register_error_handlers
@@ -29,3 +31,5 @@ app.include_router(health.router)
 app.include_router(op_auth.router)
 app.include_router(op_workdays.router)
 app.include_router(op_products.router)
+app.include_router(op_sales.router)
+app.include_router(op_customers.router)
