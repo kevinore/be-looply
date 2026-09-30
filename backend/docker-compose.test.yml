@@ -1,0 +1,10 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: owner
+      POSTGRES_PASSWORD: owner
+      POSTGRES_DB: app_test
+    ports: ["5433:5432"]
+    volumes:
+      - ./tests/init_roles.sql:/docker-entrypoint-initdb.d/init_roles.sql:ro
