@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
@@ -5,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AppError
 from app.models import Event
 
 # Section 14.4
@@ -91,3 +93,50 @@ async def emit_event(
         )
     )
     await db.flush()
+
+
+# 11.13: types the frontend may send.
+CLIENT_EVENT_TYPES = {
+    "customer": frozenset(
+        {
+            "qr_scanned",
+            "page_loaded",
+            "register_viewed",
+            "identity_rejected",
+            "card_viewed",
+            "install_prompt_shown",
+            "install_prompt_accepted",
+        }
+    ),
+    "operator": frozenset({"sale_qr_shown", "sale_skipped"}),
+}
+MAX_CLIENT_PAYLOAD_BYTES = 2048
+
+
+async def record_client_event(
+    db: AsyncSession,
+    *,
+    app: Literal["customer", "operator"],
+    business_id: UUID,
+    actor_id: UUID | None,
+    type: str,
+    sale_id: UUID | None,
+    payload: dict,
+    client_ts: datetime | None,
+) -> None:
+    """Frontend events (11.13). The actor comes from the session (None if anonymous)."""
+    if type not in CLIENT_EVENT_TYPES[app]:
+        raise AppError("validation_error")
+    if len(json.dumps(payload).encode()) > MAX_CLIENT_PAYLOAD_BYTES:
+        raise AppError("validation_error")
+    await emit_event(
+        db,
+        business_id=business_id,
+        type=type,
+        actor=app,
+        actor_id=actor_id,
+        customer_id=actor_id if app == "customer" else None,
+        sale_id=sale_id,
+        payload=payload,
+        client_ts=client_ts,
+    )

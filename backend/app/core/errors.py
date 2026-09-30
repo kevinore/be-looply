@@ -25,6 +25,8 @@ ERROR_CATALOG: dict[str, tuple[int, str]] = {
     "claim_not_found": (404, "No encontramos esa compra."),
     "customer_not_found": (404, "No encontramos ese cliente."),
     "sale_not_found": (404, "No encontramos esa venta."),
+    # Not in 14.2: needed by GET /api/op/stats/workdays/{id}.
+    "workday_not_found": (404, "No encontramos esa jornada."),
     "spin_not_found": (404, "No encontramos ese giro."),
     "prize_not_found": (404, "No encontramos ese premio."),
     "customer_exists": (409, "Ya existe un cliente con ese celular."),
