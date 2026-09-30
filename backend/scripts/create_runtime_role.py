@@ -10,7 +10,12 @@ Roles created with SQL by neondb_owner do not. So:
     uv run --env-file .env python -m scripts.create_runtime_role .env
 
 It generates a random password, writes it into DATABASE_URL of the given env file
-(never printed), and re-applies migration 0003_grants. Then run check_grants.
+(never printed), and re-applies migration 0003_grants.
+
+3. Restart the branch compute (Neon Console -> Branches -> <branch> -> Computes ->
+   Restart). Until then the pooler keeps connections of the deleted role and fails
+   with "invalid role OID".
+4. Run check_grants: all checks must pass through the pooled DATABASE_URL.
 """
 
 import os
