@@ -174,3 +174,37 @@ async def operator(seeded):
     c = await logged_in(OPERATOR_EMAIL)
     yield c
     await c.aclose()
+
+
+@pytest.fixture
+async def open_workday(owner) -> dict:
+    r = await owner.post("/api/op/workdays/open")
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+@pytest.fixture
+def weather_api(monkeypatch, owner_conn, seeded):
+    """Give the business coordinates and fake Open-Meteo. Returns the request log."""
+    import httpx
+
+    from app.services import weather
+
+    owner_conn.execute(
+        "UPDATE business SET latitude = 4.723, longitude = -74.042 WHERE id = %s",
+        (seeded.business_id,),
+    )
+    owner_conn.commit()
+    calls: list[httpx.Request] = []
+    state = {"fail": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if state["fail"]:
+            raise httpx.ReadTimeout("timeout", request=request)
+        return httpx.Response(
+            200, json={"current": {"temperature_2m": 18.4, "weather_code": 3}}
+        )
+
+    monkeypatch.setattr(weather, "TRANSPORT", httpx.MockTransport(handler))
+    return {"calls": calls, "state": state}

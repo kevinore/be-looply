@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -44,6 +45,20 @@ SYSTEM_EVENT_TYPES = frozenset({"spin_unlocked", "spin_voided", "prize_voided"})
 EVENT_TYPES = OPERATOR_EVENT_TYPES | CUSTOMER_EVENT_TYPES | SYSTEM_EVENT_TYPES
 
 Actor = Literal["customer", "operator", "system"]
+
+
+def jsonable(row: dict) -> dict:
+    """Make a DB row safe for a jsonb payload (Decimal, dates and UUIDs)."""
+    out = {}
+    for key, value in row.items():
+        if isinstance(value, Decimal):
+            value = float(value)
+        elif isinstance(value, (date, datetime)):
+            value = value.isoformat()
+        elif isinstance(value, UUID):
+            value = str(value)
+        out[key] = value
+    return out
 
 
 async def emit_event(
