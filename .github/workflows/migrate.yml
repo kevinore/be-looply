@@ -1,0 +1,28 @@
+# 15.2: production migrations run only from here (never from Railway), by hand.
+name: migrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Neon branch to migrate
+        required: true
+        type: choice
+        options: [dev, production]
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    # The `production` environment requires approval before this job runs.
+    environment: ${{ inputs.target }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: alembic upgrade head
+        run: uv run alembic upgrade head
+        env:
+          MIGRATION_DATABASE_URL: ${{ inputs.target == 'production' && secrets.MIGRATION_DATABASE_URL_PRODUCTION || secrets.MIGRATION_DATABASE_URL_DEV }}

@@ -1,0 +1,36 @@
+# 15.3: lint and tests on every push and pull request.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:17
+        env:
+          POSTGRES_USER: owner
+          POSTGRES_PASSWORD: owner
+          POSTGRES_DB: app_test
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U owner -d app_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      # Service containers cannot mount tests/init_roles.sql: run it here.
+      - name: Create app_runtime role
+        run: psql postgresql://owner:owner@localhost:5433/app_test -f tests/init_roles.sql
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
