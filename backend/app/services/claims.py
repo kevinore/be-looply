@@ -2,14 +2,16 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.db import for_update
 from app.core.errors import AppError, constraint_name
+from app.core.phone import normalize_phone
 from app.core.time import now_utc
-from app.models import Business, Customer, Sale, Spin
+from app.models import Business, Customer, Sale, SaleItem, Spin
 from app.services import customers
 from app.services.events import emit_event
 
@@ -226,3 +228,153 @@ async def build_card(db: AsyncSession, customer: Customer) -> dict:
             for award, prize in await customers.active_prizes(db, customer.id)
         ],
     }
+
+
+async def lock_sale_by_token(db: AsyncSession, claim_token: str) -> Sale:
+    sale = (
+        await db.execute(
+            for_update(select(Sale).where(Sale.claim_token == claim_token))
+        )
+    ).scalar_one_or_none()
+    if sale is None:
+        raise AppError("claim_not_found")
+    return sale
+
+
+async def claim_preview(db: AsyncSession, claim_token: str) -> dict:
+    """Entry screen preview, without personal data (11.10). Always a 200 response."""
+    sale = (
+        await db.execute(select(Sale).where(Sale.claim_token == claim_token))
+    ).scalar_one_or_none()
+    if sale is None:
+        return {"state": "not_found", "sale": None, "business": None}
+    if sale.status == "void":
+        state = "voided"
+    elif sale.status == "claimed":
+        state = "already_claimed"
+    elif sale.claim_expires_at <= now_utc():
+        state = "expired"
+    else:
+        state = "claimable"
+    items_count = (
+        await db.execute(
+            select(func.coalesce(func.sum(SaleItem.qty), 0)).where(
+                SaleItem.sale_id == sale.id, SaleItem.product_id.is_not(None)
+            )
+        )
+    ).scalar_one()
+    business = await db.get(Business, sale.business_id)
+    return {
+        "state": state,
+        "sale": {
+            "items_count": items_count,
+            "total_cop": sale.total_cop,
+            "paid_at": sale.paid_at,
+        },
+        "business": {"name": business.name, "branding": business.branding},
+    }
+
+
+async def register(
+    db: AsyncSession,
+    *,
+    phone: str,
+    alias: str,
+    consent: bool,
+    claim_token: str,
+    user_agent: str | None,
+) -> tuple[ClaimResult, str]:
+    """R5: registering requires a valid, unclaimed claim_token. Returns (result, token)."""
+    if consent is not True:
+        raise AppError("consent_required")
+    alias = alias.strip()
+    if not 2 <= len(alias) <= 30:
+        raise AppError("validation_error")
+    phone = normalize_phone(phone)
+
+    # Validate the sale before creating anything.
+    sale = await lock_sale_by_token(db, claim_token)
+    validate_claimable(sale, "qr")
+
+    existing = (
+        await db.execute(
+            select(Customer).where(
+                Customer.business_id == sale.business_id, Customer.phone == phone
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        # Only here the alias is revealed, and only because the token is valid (R5).
+        raise AppError(
+            "customer_exists",
+            extra={
+                "alias": existing.alias,
+                "phone_last4": customers.phone_last4(phone),
+            },
+        )
+
+    customer = Customer(
+        business_id=sale.business_id,
+        phone=phone,
+        alias=alias,
+        consent_at=now_utc(),
+        consent_version=settings.PRIVACY_POLICY_VERSION,
+    )
+    db.add(customer)
+    await db.flush()
+    await emit_event(
+        db,
+        business_id=sale.business_id,
+        type="customer_created",
+        actor="customer",
+        actor_id=customer.id,
+        customer_id=customer.id,
+        sale_id=sale.id,
+    )
+    token = await customers.create_customer_session(db, customer, user_agent)
+    result = await link_sale_to_customer(
+        db, sale, customer, "qr", "customer", customer.id
+    )
+    return result, token
+
+
+async def identify_confirm(
+    db: AsyncSession, *, phone: str, claim_token: str, user_agent: str | None
+) -> tuple[ClaimResult, str]:
+    """Existing customer without a session confirms identity with a valid token (F3)."""
+    phone = normalize_phone(phone)
+    sale = await lock_sale_by_token(db, claim_token)
+    validate_claimable(sale, "qr")
+    customer = (
+        await db.execute(
+            select(Customer).where(
+                Customer.business_id == sale.business_id, Customer.phone == phone
+            )
+        )
+    ).scalar_one_or_none()
+    if customer is None:
+        raise AppError("customer_not_found")
+    token = await customers.create_customer_session(db, customer, user_agent)
+    await emit_event(
+        db,
+        business_id=sale.business_id,
+        type="identity_confirmed",
+        actor="customer",
+        actor_id=customer.id,
+        customer_id=customer.id,
+        sale_id=sale.id,
+    )
+    result = await link_sale_to_customer(
+        db, sale, customer, "qr", "customer", customer.id
+    )
+    return result, token
+
+
+async def claim_with_session(
+    db: AsyncSession, customer: Customer, claim_token: str
+) -> ClaimResult:
+    """F2: customer with an open session scans the QR."""
+    sale = await lock_sale_by_token(db, claim_token)
+    return await link_sale_to_customer(
+        db, sale, customer, "qr", "customer", customer.id
+    )

@@ -232,3 +232,92 @@ def make_customer(conn, business_id, phone="+573101234567", alias="Ana") -> UUID
     ).fetchone()[0]
     conn.commit()
     return customer_id
+
+
+class PickPrize:
+    """Deterministic RNG (section 13): always draws the prize with this name."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def choices(self, population, weights=None, k=1):
+        return [next(p for p in population if p.name == self.name)] * k
+
+
+@pytest.fixture
+def rng():
+    """rng("Bebida gratis") makes the next spins award that prize."""
+    from app.api.deps import get_rng
+
+    def pick(name: str) -> None:
+        app.dependency_overrides[get_rng] = lambda: PickPrize(name)
+
+    pick("10% de descuento")
+    yield pick
+    app.dependency_overrides.pop(get_rng, None)
+
+
+@pytest.fixture
+async def customer_client(migrated_db):
+    """A customer's browser (own cookie jar)."""
+    async with make_client() as c:
+        yield c
+
+
+def claim_token(conn, sale_id) -> str:
+    return conn.execute(
+        "SELECT claim_token FROM sale WHERE id = %s", (str(sale_id),)
+    ).fetchone()[0]
+
+
+async def register(c, token, phone="310 123 4567", alias="Ana"):
+    return await c.post(
+        "/api/c/register",
+        json={"phone": phone, "alias": alias, "consent": True, "claim_token": token},
+    )
+
+
+def add_past_purchases(conn, seeded, customer_id, n: int) -> None:
+    """n counted purchases in n past, closed workdays (plus the welcome spin)."""
+    from datetime import timedelta
+
+    from app.core.time import local_today
+
+    # Business-local date, not the database's UTC current_date.
+    today = local_today("America/Bogota")
+    first_sale = None
+    for days_ago in range(n, 0, -1):
+        workday_id = conn.execute(
+            "INSERT INTO workday (business_id, local_date, day_type, status, opened_by, "
+            "closed_at, closed_by) VALUES (%s, %s, 'other', 'closed', %s, "
+            "now(), %s) RETURNING id",
+            (
+                seeded.business_id,
+                today - timedelta(days=days_ago),
+                seeded.owner_id,
+                seeded.owner_id,
+            ),
+        ).fetchone()[0]
+        sale_id = conn.execute(
+            "INSERT INTO sale (business_id, workday_id, operator_id, customer_id, status, "
+            "payment_method, total_cop, idempotency_key, claim_token, claim_expires_at, "
+            "claim_method, claimed_at, paid_at) VALUES (%s, %s, %s, %s, 'claimed', 'cash', "
+            "14000, gen_random_uuid(), gen_random_uuid()::text, now(), 'qr', "
+            "now() - make_interval(days => %s), now() - make_interval(days => %s)) "
+            "RETURNING id",
+            (
+                seeded.business_id,
+                workday_id,
+                seeded.owner_id,
+                customer_id,
+                days_ago,
+                days_ago,
+            ),
+        ).fetchone()[0]
+        first_sale = first_sale or sale_id
+    conn.execute(
+        "INSERT INTO spin (business_id, customer_id, reason, unlocked_by_sale_id) "
+        "VALUES (%s, %s, 'welcome', %s)",
+        (seeded.business_id, customer_id, first_sale),
+    )
+    conn.commit()

@@ -15,6 +15,7 @@ from app.models import (
     PrizeAward,
     PrizeCatalog,
     Sale,
+    SaleItem,
 )
 
 
@@ -156,3 +157,51 @@ async def recent_sales(db: AsyncSession, customer_id: UUID, limit: int) -> list[
             )
         ).scalars()
     )
+
+
+async def history(db: AsyncSession, customer_id: UUID) -> list[dict]:
+    """Last 30 non-void sales of the customer (11.10)."""
+    sales = list(
+        (
+            await db.execute(
+                select(Sale)
+                .where(Sale.customer_id == customer_id, Sale.status != "void")
+                .order_by(Sale.paid_at.desc())
+                .limit(30)
+            )
+        ).scalars()
+    )
+    if not sales:
+        return []
+    ids = [s.id for s in sales]
+    items: dict[UUID, list[SaleItem]] = {}
+    for item in (
+        await db.execute(
+            select(SaleItem)
+            .where(SaleItem.sale_id.in_(ids))
+            .order_by(SaleItem.created_at)
+        )
+    ).scalars():
+        items.setdefault(item.sale_id, []).append(item)
+    prize_used = dict(
+        (
+            await db.execute(
+                select(PrizeAward.redeemed_sale_id, PrizeCatalog.name)
+                .join(PrizeCatalog, PrizeCatalog.id == PrizeAward.prize_id)
+                .where(
+                    PrizeAward.redeemed_sale_id.in_(ids),
+                    PrizeAward.status == "redeemed",
+                )
+            )
+        ).all()
+    )
+    return [
+        {
+            "id": s.id,
+            "paid_at": s.paid_at,
+            "items": items.get(s.id, []),
+            "total_cop": s.total_cop,
+            "prize_used": prize_used.get(s.id),
+        }
+        for s in sales
+    ]
