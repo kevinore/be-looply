@@ -10,7 +10,7 @@ import sys
 import psycopg
 from argon2 import PasswordHasher
 
-MIN_PASSWORD_LENGTH = 12
+MIN_PASSWORD_LENGTH = 4
 ROLES = ("owner", "operator")
 
 

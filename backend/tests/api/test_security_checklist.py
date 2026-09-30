@@ -423,3 +423,49 @@ def test_origin_constant_matches_settings():
     from app.core.config import settings
 
     assert settings.ALLOWED_ORIGINS == [ORIGIN]
+
+
+# --- Origin check: JSON Content-Type only required when there is a body -------------
+def swagger_like_client(origin: str = ORIGIN) -> httpx.AsyncClient:
+    """Like Swagger: sends Origin, and no Content-Type when there is no body."""
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Origin": origin},
+    )
+
+
+async def test_bodyless_post_without_content_type_is_allowed(seeded):
+    async with swagger_like_client() as c:
+        r = await c.post(
+            "/api/op/auth/login",
+            json={"email": "owner@test.local", "password": PASSWORD},
+        )
+        assert r.status_code == 200
+        r = await c.post("/api/op/workdays/open")  # no body, no Content-Type
+        assert r.status_code == 201, r.text
+        r = await c.post("/api/op/auth/logout")
+        assert r.status_code == 204
+        assert (await c.get("/api/op/auth/me")).status_code == 401
+
+
+async def test_bodyless_post_from_foreign_origin_is_blocked(seeded):
+    async with swagger_like_client("https://evil.example") as c:
+        r = await c.post("/api/op/auth/logout")
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "forbidden_origin"
+
+
+@pytest.mark.parametrize(
+    "content_type", [None, "text/plain", "application/x-www-form-urlencoded"]
+)
+async def test_post_with_body_requires_json(seeded, content_type):
+    headers = {"Content-Type": content_type} if content_type else {}
+    async with swagger_like_client() as c:
+        r = await c.post(
+            "/api/op/auth/login",
+            content=b'{"email": "owner@test.local", "password": "x"}',
+            headers=headers,
+        )
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "forbidden_origin"

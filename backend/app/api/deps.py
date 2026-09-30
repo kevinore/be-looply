@@ -25,10 +25,21 @@ async def origin_check_middleware(
         origin = request.headers.get("origin")
         if origin is not None and origin not in settings.ALLOWED_ORIGINS:
             return error_response("forbidden_origin")
+        # Owner decision: JSON is only required when there is a body. A body-less
+        # request carries no data, and the Origin check above still applies.
         content_type = request.headers.get("content-type", "")
-        if content_type.split(";")[0].strip().lower() != "application/json":
+        if has_body(request) and (
+            content_type.split(";")[0].strip().lower() != "application/json"
+        ):
             return error_response("forbidden_origin")
     return await call_next(request)
+
+
+def has_body(request: Request) -> bool:
+    if "transfer-encoding" in request.headers:
+        return True
+    length = request.headers.get("content-length", "0").strip()
+    return not (length.isdigit() and int(length) == 0)
 
 
 async def get_current_operator(request: Request, db: DbSession) -> OperatorContext:
