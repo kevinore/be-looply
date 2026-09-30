@@ -1,0 +1,39 @@
+{
+  "_comment": "MOCK DATA. Replace prices, coordinates, colors, logo and prize catalog with the real values, then re-run scripts/seed.py (it updates existing rows).",
+  "business": {
+    "slug": "que-fresh",
+    "name": "Qué Fresh",
+    "timezone": "America/Bogota",
+    "latitude": 4.723,
+    "longitude": -74.042,
+    "milestone_every": 5,
+    "branding": {
+      "display_name": "Qué Fresh",
+      "tagline": "Antojo libre de culpa",
+      "logo_url": null,
+      "colors": {
+        "primary": "#E07AA6",
+        "secondary": "#5DA57E",
+        "ink": "#1A1A1A",
+        "background": "#F4F1EC"
+      },
+      "privacy_policy_url": null
+    }
+  },
+  "products": [
+    { "sort_order": 1, "name": "Berry Bliss", "price_cop": 14000, "cost_cop": null },
+    { "sort_order": 2, "name": "Blue Mist", "price_cop": 14000, "cost_cop": null },
+    { "sort_order": 3, "name": "Sunset Passion", "price_cop": 14000, "cost_cop": null },
+    { "sort_order": 4, "name": "Strawberry Soda", "price_cop": 12000, "cost_cop": null },
+    { "sort_order": 5, "name": "Passion Soda", "price_cop": 12000, "cost_cop": null },
+    { "sort_order": 6, "name": "Green Chai Latte", "price_cop": 16000, "cost_cop": null },
+    { "sort_order": 7, "name": "Amber Matcha Latte", "price_cop": 16000, "cost_cop": null }
+  ],
+  "prize_catalog": [
+    { "sort_order": 1, "name": "10% de descuento", "short_label": "10% dto", "type": "percent_off", "value": 10, "max_value_cop": 16000, "weight": 40, "color": "primary", "expires_days": 90 },
+    { "sort_order": 2, "name": "Cold foam o topping extra", "short_label": "Topping", "type": "extra_item", "value": 0, "max_value_cop": null, "weight": 25, "color": "secondary", "expires_days": 90 },
+    { "sort_order": 3, "name": "20% de descuento", "short_label": "20% dto", "type": "percent_off", "value": 20, "max_value_cop": 16000, "weight": 20, "color": "primary", "expires_days": 90 },
+    { "sort_order": 4, "name": "50% de descuento", "short_label": "50% dto", "type": "percent_off", "value": 50, "max_value_cop": 16000, "weight": 10, "color": "ink", "expires_days": 90 },
+    { "sort_order": 5, "name": "Bebida gratis", "short_label": "Gratis", "type": "free_item", "value": 0, "max_value_cop": 16000, "weight": 5, "color": "ink", "expires_days": 90 }
+  ]
+}
