@@ -37,7 +37,7 @@
 | R5 | Registrar un cliente o recuperar su identidad **exige un `claim_token` válido y sin reclamar**. Sin compra real, no se puede consultar ni crear clientes (antienumeración). |
 | R6 | Cada venta tiene un `claim_token` de **un solo uso**. Una venta se vincula a un solo cliente. |
 | R7 | El token vence al **final del día local** o cuando se **cierra la jornada**, lo que ocurra primero. |
-| R8 | **Compra contabilizada** = una jornada distinta con al menos una venta `claimed` del cliente. Máximo 1 compra contabilizada por jornada. Una segunda venta el mismo día se vincula pero no suma. |
+| R8 | **Compra contabilizada (sello)** = cada venta `claimed` del cliente suma **un sello**, sin importar cuántos productos tenga ni cuánto tiempo pase desde la anterior. *Decisión del dueño (2026-10-13); antes era 1 sello por jornada. Puede cambiar: la regla vive solo en `app/services/stamps.py` (`STAMP_RULE`), con la regla anterior disponible como `PER_WORKDAY`.* |
 | R9 | **Giro de bienvenida:** 1 por cliente, cuando tiene ≥ 1 compra contabilizada. |
 | R10 | **Giro de hito:** 1 cada `business.milestone_every` compras (por defecto 5): en la compra 5, 10, 15… Nunca dos giros para el mismo hito. |
 | R11 | Los giros disponibles se acumulan y se pueden girar en cualquier momento y lugar. |
@@ -818,7 +818,7 @@ Convenciones de toda la API:
 **`POST /api/op/workdays/open`**
 1. `local_date = local_today(business.timezone)`.
 2. Si ya hay jornada abierta → `workday_already_open` 409 (devolver su id en `extra`).
-3. Si ya existe una jornada **cerrada** con esa fecha → `workday_already_closed_today` 409.
+3. Si ya existe una jornada **cerrada** con esa fecha → **se reabre** (respuesta 200): `status='open'`, `closed_at`/`closed_by` a `NULL`, los QR pendientes de esa jornada vuelven a vencer al final del día local (R7) y evento `workday_reopened`. Una jornada por fecha: todas las ventas del día quedan en la misma. *Decisión del dueño (2026-10-13); antes era `workday_already_closed_today` 409.*
 4. Consultar clima (11.3). Si falla, continuar sin clima.
 5. Insertar con `day_type(local_date)`, `opened_by`.
 6. Evento `workday_opened` con `{weather_temp_c, weather_code, day_type}`.
@@ -829,6 +829,8 @@ Convenciones de toda la API:
 3. Vencer QR pendientes: `UPDATE sale SET claim_expires_at = now() WHERE workday_id = … AND status = 'paid' AND claim_expires_at > now()`.
 4. Evento `workday_closed` con el resumen.
 5. Responder el resumen de `v_workday_summary`.
+
+**`GET /api/op/workdays/{id}/sales`** → todas las ventas de la jornada (anuladas incluidas), más recientes primero, con líneas y cliente. `workday_not_found` 404 si no es del negocio.
 
 **Regla transversal:** todo endpoint que crea ventas, vincula o redime exige jornada abierta → si no, `workday_not_open` 409.
 
@@ -940,7 +942,7 @@ Precondición: la venta ya está bloqueada `FOR UPDATE` por el llamador.
    - `method == 'qr'` y `claim_expires_at <= now()` → `claim_expired` 410.
    - `sale.business_id != customer.business_id` → `claim_not_found` 404.
 2. Bloquear el cliente `FOR UPDATE`.
-3. `counted = NOT EXISTS (venta claimed del cliente en la misma workday_id)` (R8).
+3. `counted = stamps.earns_stamp(...)` (R8; con la regla actual siempre es verdadero).
 4. Actualizar venta: `customer_id`, `status='claimed'`, `claimed_at=now()`, `claim_method=method`.
 5. Evento `sale_claimed` con `{method, counted}`.
 6. `new_spins = await reconcile_spins(db, customer, trigger_sale=sale)`.
@@ -951,7 +953,7 @@ async def reconcile_spins(db, customer, trigger_sale=None) -> list[Spin]
 ```
 Hace que los giros vigentes coincidan con las compras (R9, R10). Se llama tras vincular, desvincular y anular.
 
-1. `purchases` desde `v_customer_purchases`.
+1. `purchases` = `stamps.count_stamps(...)` (R8). La vista `v_customer_purchases` se eliminó en `0004`.
 2. `every = business.milestone_every`.
 3. Giros esperados: `welcome` si `purchases >= 1`; `milestone n` para cada `n` en `every, 2·every, …, ≤ purchases`.
 4. Giros vigentes = los del cliente con `status <> 'void'`.
@@ -1168,7 +1170,7 @@ Conectado como `app_runtime`:
 | `UPDATE event` | Permiso denegado |
 | `CREATE TABLE` | Permiso denegado |
 
-Y: dos ventas `claimed` del mismo cliente en una jornada → `v_customer_purchases.purchases = 1`.
+Y: (R8 ahora en `stamps.py`, se prueba en `tests/api`) dos ventas `claimed` del mismo cliente en una jornada → 2 sellos.
 
 ### 13.2 Flujos (`tests/flows/`)
 
@@ -1176,7 +1178,7 @@ Y: dos ventas `claimed` del mismo cliente en una jornada → `v_customer_purchas
 |---|---|
 | **F1 Primera compra** | Crear venta → vista previa `claimable` → registrar → giro `welcome` disponible → girar → premio `active`, vence en 90 días → la vista previa pasa a `already_claimed` |
 | **F2 Sesión abierta** | Cliente con 4 compras en 4 jornadas → nueva jornada → reclamar → `purchases=5` y aparece giro `milestone 5` |
-| **F2 Mismo día** | Segunda venta en la misma jornada → `counted=false`, sin giro nuevo |
+| **F2 Mismo día** | Segunda venta en la misma jornada → `counted=true`, +1 sello (R8) |
 | **F3 Sin sesión** | Registrar con celular existente → 409 con alias → confirmar → sesión nueva, sin giro de bienvenida |
 | **F4 Sin escaneo** | Venta anónima → buscar por últimos 4 → vincular manual → `claim_method='manual'` |
 | **F5 Premio guardado** | Cliente con `percent_off 10%` → venta con premio sobre producto de 14000 → descuento 1400 en una unidad, total correcto, premio `redeemed` |

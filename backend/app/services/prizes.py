@@ -9,6 +9,7 @@ from app.core.db import for_update
 from app.core.errors import AppError
 from app.core.time import now_utc
 from app.models import Operator, PrizeAward, PrizeCatalog, Product, Sale, SaleItem
+from app.services import options
 from app.services.events import emit_event
 
 
@@ -50,9 +51,10 @@ def apply_at_creation(
     prize: PrizeCatalog, award: PrizeAward, lines: list[dict], target_product_id: UUID
 ) -> None:
     """11.9.1 steps 2-3: mutate the sale lines before insert."""
-    target = next(
-        (line for line in lines if line["product_id"] == target_product_id), None
-    )
+    # The same product can be in several lines (different options): the prize
+    # goes to the most expensive one.
+    matches = [line for line in lines if line["product_id"] == target_product_id]
+    target = max(matches, key=lambda line: line["unit_price_cop"], default=None)
     if target is None:
         raise AppError("prize_target_invalid")
     if prize.type == "extra_item":
@@ -111,12 +113,27 @@ async def sale_has_redeemed_prize(db: AsyncSession, sale_id: UUID) -> bool:
     ).scalar()
 
 
+async def sale_has_prize_eligible_product(db: AsyncSession, sale_id: UUID) -> bool:
+    return (
+        await db.execute(
+            select(
+                exists().where(
+                    SaleItem.sale_id == sale_id,
+                    SaleItem.product_id == Product.id,
+                    Product.prize_eligible.is_(True),
+                )
+            )
+        )
+    ).scalar()
+
+
 async def redeem_on_paid_sale(
     db: AsyncSession,
     sale: Sale,
     prize_award_id: UUID,
     product_id: UUID | None,
     operator: Operator,
+    option_ids: list[UUID] | None = None,
 ) -> None:
     """11.9.2 steps 2-8. The caller holds the sale lock (claimed, open workday)."""
     award, prize = await lock_valid_prize(
@@ -141,21 +158,29 @@ async def redeem_on_paid_sale(
         ).scalar_one_or_none()
         if product is None:
             raise AppError("product_invalid")
-        discount = unit_discount(prize, product.price_cop)
+        if not product.prize_eligible:  # R17
+            raise AppError("prize_target_invalid")
+        groups = await options.product_groups(db, [product.id])
+        chosen = options.resolve_choices(groups.get(product.id, []), option_ids or [])
+        price = product.price_cop + sum(c.price_delta_cop for _, c in chosen)
+        discount = unit_discount(prize, price)
         # The difference is never charged in this flow: do it as a new sale.
-        if discount < product.price_cop:
+        if discount < price:
             raise AppError("prize_target_invalid")
         item = SaleItem(
             sale_id=sale.id,
             product_id=product.id,
             label=product.name,
             qty=1,
-            unit_price_cop=product.price_cop,
+            unit_price_cop=price,
             unit_cost_cop=product.cost_cop,
             discount_cop=discount,
             prize_award_id=award.id,
         )
     else:  # extra_item
+        # R17: it goes with a product that takes prizes, so the sale needs one.
+        if not await sale_has_prize_eligible_product(db, sale.id):
+            raise AppError("prize_target_invalid")
         item = SaleItem(
             sale_id=sale.id,
             product_id=None,
@@ -168,6 +193,9 @@ async def redeem_on_paid_sale(
         )
     db.add(item)
     await db.flush()
+    if prize.type == "free_item":
+        options.add_item_options(db, item, options.option_rows(chosen))
+        await db.flush()
     # total_cop does not change: net $0 line.
     await mark_redeemed(db, award, prize, sale, operator)
 

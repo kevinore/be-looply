@@ -14,6 +14,7 @@ OPERATOR_EVENT_TYPES = frozenset(
     {
         "operator_logged_in",
         "workday_opened",
+        "workday_reopened",
         "workday_closed",
         "sale_paid",
         "sale_qr_shown",

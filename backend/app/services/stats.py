@@ -76,6 +76,31 @@ def margin(ranking: list[dict]) -> tuple[bool, int | None]:
     return False, sum(p["net_cop"] - p["cost_cop"] for p in ranking)
 
 
+async def option_sales(db: AsyncSession, business_id: UUID, workday_id: UUID) -> list:
+    """Units sold per chosen option (e.g. ice cream flavor), void sales excluded.
+
+    Names come from the copies on sale_item_option; the category is the
+    product's current one.
+    """
+    rows = await db.execute(
+        text(
+            "SELECT pc.name AS category, o.group_name, o.option_name, "
+            "SUM(si.qty)::int AS units "
+            "FROM sale_item_option o "
+            "JOIN sale_item si ON si.id = o.sale_item_id "
+            "JOIN sale s ON s.id = si.sale_id "
+            "LEFT JOIN product p ON p.id = si.product_id "
+            "LEFT JOIN product_category pc ON pc.id = p.category_id "
+            "WHERE s.business_id = :business_id AND s.workday_id = :workday_id "
+            "AND s.status <> 'void' "
+            "GROUP BY pc.name, pc.sort_order, o.group_name, o.option_name "
+            "ORDER BY pc.sort_order NULLS LAST, units DESC, o.option_name"
+        ),
+        {"business_id": business_id, "workday_id": workday_id},
+    )
+    return [dict(r) for r in rows.mappings()]
+
+
 async def workday_stats(db: AsyncSession, business_id: UUID, workday_id: UUID) -> dict:
     summary = await workday_summary(db, business_id, workday_id)
     if summary is None:
@@ -114,9 +139,11 @@ async def workday_stats(db: AsyncSession, business_id: UUID, workday_id: UUID) -
         "summary": with_rates(summary),
         "hourly": hourly,
         "top_products": products[:3],
+        "products": products,
         "best_hour": best["local_hour"] if best else None,
         "cost_incomplete": cost_incomplete,
         "margin_cop": margin_cop,
+        "options": await option_sales(db, business_id, workday_id),
     }
 
 
@@ -201,6 +228,7 @@ EXPORT_COLUMNS = [
     "claim_method",
     "product_id",
     "label",
+    "options",
     "qty",
     "unit_price_cop",
     "unit_cost_cop",
@@ -221,7 +249,11 @@ async def export_sales_csv(
             text(
                 "SELECT s.id AS sale_id, w.local_date, s.paid_at, s.status, "
                 "s.payment_method, s.total_cop AS sale_total_cop, s.claim_method, "
-                "si.product_id, si.label, si.qty, si.unit_price_cop, si.unit_cost_cop, "
+                "si.product_id, si.label, "
+                "(SELECT string_agg(o.group_name || ': ' || o.option_name, '; ' "
+                "ORDER BY o.group_name, o.option_name) FROM sale_item_option o "
+                "WHERE o.sale_item_id = si.id) AS options, "
+                "si.qty, si.unit_price_cop, si.unit_cost_cop, "
                 "si.discount_cop, si.unit_price_cop * si.qty - si.discount_cop AS net_cop, "
                 "si.prize_award_id "
                 "FROM sale s JOIN sale_item si ON si.sale_id = s.id "

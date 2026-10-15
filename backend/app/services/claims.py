@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,7 @@ from app.core.errors import AppError, constraint_name
 from app.core.phone import normalize_phone
 from app.core.time import now_utc
 from app.models import Business, Customer, Sale, SaleItem, Spin
-from app.services import customers
+from app.services import customers, stamps
 from app.services.events import emit_event
 
 ClaimMethod = Literal["qr", "manual"]
@@ -23,6 +23,8 @@ class ClaimResult:
     counted: bool
     new_spins: list[Spin]
     card: dict
+    # False when the sale has no product that earns stamps (e.g. only ice cream).
+    stamp_eligible: bool = True
 
 
 def validate_claimable(sale: Sale, method: ClaimMethod) -> None:
@@ -51,18 +53,8 @@ async def link_sale_to_customer(
 
     await db.execute(for_update(select(Customer).where(Customer.id == customer.id)))
 
-    # R8: only the first claimed sale of a workday counts as a purchase.
-    counted = not (
-        await db.execute(
-            select(
-                exists().where(
-                    Sale.customer_id == customer.id,
-                    Sale.workday_id == sale.workday_id,
-                    Sale.status == "claimed",
-                )
-            )
-        )
-    ).scalar()
+    # R8: whether this sale adds a stamp is decided in services/stamps.py.
+    counted = await stamps.earns_stamp(db, sale, customer.id)
 
     sale.customer_id = customer.id
     sale.status = "claimed"
@@ -81,7 +73,9 @@ async def link_sale_to_customer(
         payload={"method": method, "counted": counted},
     )
     new_spins = await reconcile_spins(db, customer, trigger_sale=sale)
-    return ClaimResult(counted, new_spins, await build_card(db, customer))
+    return ClaimResult(
+        counted, new_spins, await build_card(db, customer), sale.earns_stamp
+    )
 
 
 async def reconcile_spins(

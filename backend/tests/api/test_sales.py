@@ -21,6 +21,7 @@ async def test_create_sale(owner, open_workday, seeded, owner_conn):
         "unit_price_cop": 14000,
         "discount_cop": 0,
         "prize_award_id": None,
+        "options": [],
     }
     token = owner_conn.execute(
         "SELECT claim_token FROM sale WHERE id = %s", (sale["id"],)
@@ -36,7 +37,7 @@ async def test_create_sale(owner, open_workday, seeded, owner_conn):
     assert payload == {
         "total_cop": 28000,
         "payment_method": "cash",
-        "items": [{"product_id": str(berry), "qty": 2}],
+        "items": [{"product_id": str(berry), "qty": 2, "option_ids": []}],
     }
 
 
@@ -130,8 +131,25 @@ async def test_payment_methods_and_totals(owner, open_workday, seeded):
         (seeded.products["Berry Bliss"], 1),
         (seeded.products["Green Chai Latte"], 2),
     ]
-    r = await sell(owner, items, payment_method="nequi")
+    r = await sell(owner, items, payment_method="transfer")
     assert r.json()["total_cop"] == 14000 + 2 * 16000
+    assert r.json()["payment_method"] == "transfer"
+
+
+async def test_retired_payment_methods_rejected(
+    owner, open_workday, seeded, owner_conn
+):
+    """Only cash, transfer and card for new sales; old values stay valid in the DB."""
+    berry = seeded.products["Berry Bliss"]
+    for method in ("nequi", "breb", "bitcoin"):
+        r = await sell(owner, [(berry, 1)], payment_method=method)
+        assert r.json()["error"]["code"] == "validation_error", method
+    sale = (await sell(owner, [(berry, 1)], payment_method="card")).json()
+    owner_conn.execute(
+        "UPDATE sale SET payment_method = 'nequi' WHERE id = %s", (sale["id"],)
+    )
+    owner_conn.commit()
+    r = await owner.get(f"/api/op/sales/{sale['id']}")
     assert r.json()["payment_method"] == "nequi"
 
 

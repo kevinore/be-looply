@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
@@ -17,6 +17,7 @@ from app.models import (
     Sale,
     SaleItem,
 )
+from app.services import options, stamps
 
 
 @dataclass
@@ -32,16 +33,8 @@ def phone_last4(phone: str) -> str:
 
 
 async def purchases(db: AsyncSession, customer_id: UUID) -> int:
-    """R8: counted purchases = distinct workdays with a claimed sale."""
-    return (
-        await db.execute(
-            text(
-                "SELECT purchases FROM v_customer_purchases "
-                "WHERE customer_id = :customer_id"
-            ),
-            {"customer_id": customer_id},
-        )
-    ).scalar_one()
+    """Stamps on the customer's card (exposed as `purchases`). Rule: services/stamps.py."""
+    return await stamps.count_stamps(db, customer_id)
 
 
 async def active_prizes(
@@ -174,15 +167,18 @@ async def history(db: AsyncSession, customer_id: UUID) -> list[dict]:
     if not sales:
         return []
     ids = [s.id for s in sales]
-    items: dict[UUID, list[SaleItem]] = {}
-    for item in (
-        await db.execute(
-            select(SaleItem)
-            .where(SaleItem.sale_id.in_(ids))
-            .order_by(SaleItem.created_at)
-        )
-    ).scalars():
-        items.setdefault(item.sale_id, []).append(item)
+    lines = list(
+        (
+            await db.execute(
+                select(SaleItem)
+                .where(SaleItem.sale_id.in_(ids))
+                .order_by(SaleItem.created_at)
+            )
+        ).scalars()
+    )
+    items: dict[UUID, list[dict]] = {}
+    for item, body in zip(lines, await options.item_dicts(db, lines), strict=True):
+        items.setdefault(item.sale_id, []).append(body)
     prize_used = dict(
         (
             await db.execute(

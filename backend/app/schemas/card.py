@@ -36,3 +36,5 @@ class ClaimResultOut(Schema):
     card: CardOut
     counted: bool
     new_spins: list[SpinBrief]
+    # False: the sale has no product that earns stamps (counted is then false too).
+    stamp_eligible: bool

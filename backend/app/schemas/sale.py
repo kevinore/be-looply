@@ -6,12 +6,17 @@ from pydantic import Field, model_validator
 
 from app.schemas.common import Schema
 
-PaymentMethod = Literal["cash", "nequi", "breb", "card"]
+# Owner decision (2026-10-14): three methods. Old sales may still say "nequi" or
+# "breb" (migration 0006), so responses keep payment_method as a plain string.
+PaymentMethod = Literal["cash", "transfer", "card"]
 
 
 class SaleItemIn(Schema):
     product_id: UUID
     qty: int = Field(ge=1, le=20)
+    # Chosen options (services/options.py). The same product may appear in
+    # several lines, one per combination of options.
+    option_ids: list[UUID] = Field(default_factory=list, max_length=20)
 
 
 class SaleCreateIn(Schema):
@@ -25,9 +30,9 @@ class SaleCreateIn(Schema):
 
     @model_validator(mode="after")
     def check(self):
-        ids = [item.product_id for item in self.items]
-        if len(ids) != len(set(ids)):
-            raise ValueError("repeated product_id")
+        lines = [(i.product_id, frozenset(i.option_ids)) for i in self.items]
+        if len(lines) != len(set(lines)):
+            raise ValueError("repeated product_id with the same options")
         if self.prize_award_id is not None and (
             self.customer_id is None or self.prize_target_product_id is None
         ):
@@ -37,13 +42,21 @@ class SaleCreateIn(Schema):
         return self
 
 
+class SaleItemOptionOut(Schema):
+    group_name: str
+    option_name: str
+    price_delta_cop: int
+
+
 class SaleItemOut(Schema):
     product_id: UUID | None
     label: str
     qty: int
+    # Product price plus the price of its options.
     unit_price_cop: int
     discount_cop: int
     prize_award_id: UUID | None
+    options: list[SaleItemOptionOut]
 
 
 class SaleCustomerOut(Schema):
@@ -97,3 +110,5 @@ class VoidIn(Schema):
 class RedeemPrizeIn(Schema):
     prize_award_id: UUID
     product_id: UUID | None = None
+    # Options of the free product, when it has option groups.
+    option_ids: list[UUID] = Field(default_factory=list, max_length=20)

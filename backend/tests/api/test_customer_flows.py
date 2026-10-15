@@ -88,24 +88,81 @@ async def test_f2_open_session_milestone(
     assert r.json()["card"]["purchases"] == 5
     assert [s["milestone_n"] for s in r.json()["new_spins"]] == [5]
 
-    # Same workday again: linked, not counted, no new spin.
+    # Same workday again: one more stamp (R8, per sale), next milestone is 10.
     r = await customer_client.post("/api/c/claim", json={"claim_token": token})
     assert r.status_code == 200
-    assert r.json()["counted"] is False
+    assert r.json()["counted"] is True
     assert r.json()["new_spins"] == []
-    assert r.json()["card"]["purchases"] == 5
-    assert r.json()["card"]["progress"] == 5
+    assert r.json()["card"]["purchases"] == 6
+    assert r.json()["card"]["progress"] == 1
 
 
 async def test_f2_same_day_second_sale(
     owner, open_workday, seeded, owner_conn, customer_client
 ):
+    """R8: every claimed sale is a stamp, even minutes apart on the same day."""
+    _, first = await new_sale(owner, seeded, owner_conn)
+    _, second = await new_sale(owner, seeded, owner_conn)
+    await register(customer_client, first)
+    r = await customer_client.post("/api/c/claim", json={"claim_token": second})
+    assert r.json()["counted"] is True
+    assert r.json()["new_spins"] == []  # the welcome spin is only once
+    assert r.json()["card"]["purchases"] == 2
+
+
+async def test_stamp_per_sale_not_per_item(
+    owner, open_workday, seeded, owner_conn, customer_client
+):
+    """R8: a sale with many items is still one stamp."""
+    sale = (
+        await sell(
+            owner,
+            [(seeded.products["Berry Bliss"], 3), (seeded.products["Passion Soda"], 2)],
+        )
+    ).json()
+    r = await register(customer_client, claim_token(owner_conn, sale["id"]))
+    assert r.json()["card"]["purchases"] == 1
+
+
+async def test_milestone_reached_on_one_day(
+    owner, open_workday, seeded, owner_conn, customer_client
+):
+    """R8 + R10: five sales in a single workday reach milestone 5."""
+    _, first = await new_sale(owner, seeded, owner_conn)
+    await register(customer_client, first)
+    for _ in range(4):
+        _, token = await new_sale(owner, seeded, owner_conn)
+        r = await customer_client.post("/api/c/claim", json={"claim_token": token})
+    assert r.json()["card"]["purchases"] == 5
+    assert [s["milestone_n"] for s in r.json()["new_spins"]] == [5]
+
+
+async def test_void_second_same_day_sale_removes_its_stamp(
+    owner, open_workday, seeded, owner_conn, customer_client
+):
+    _, first = await new_sale(owner, seeded, owner_conn)
+    second, token = await new_sale(owner, seeded, owner_conn)
+    await register(customer_client, first)
+    await customer_client.post("/api/c/claim", json={"claim_token": token})
+    r = await owner.post(
+        f"/api/op/sales/{second['id']}/void", json={"reason": "duplicada"}
+    )
+    assert r.status_code == 200, r.text
+    assert (await customer_client.get("/api/c/me")).json()["purchases"] == 1
+
+
+async def test_per_workday_rule_still_works(
+    owner, open_workday, seeded, owner_conn, customer_client, monkeypatch
+):
+    """The previous R8 (one stamp per workday) stays available in stamps.py."""
+    from app.services import stamps
+
+    monkeypatch.setattr(stamps, "STAMP_RULE", stamps.StampRule.PER_WORKDAY)
     _, first = await new_sale(owner, seeded, owner_conn)
     _, second = await new_sale(owner, seeded, owner_conn)
     await register(customer_client, first)
     r = await customer_client.post("/api/c/claim", json={"claim_token": second})
     assert r.json()["counted"] is False
-    assert r.json()["new_spins"] == []
     assert r.json()["card"]["purchases"] == 1
 
 

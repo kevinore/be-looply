@@ -26,13 +26,26 @@ class ProductStatsOut(Schema):
     margin_cop: int | None
 
 
+class OptionSalesOut(Schema):
+    """Units sold with one option (e.g. the flavor "Coco"), by product category."""
+
+    category: str | None
+    group_name: str
+    option_name: str
+    units: int
+
+
 class WorkdayStatsOut(Schema):
     summary: WorkdayRatesOut
     hourly: list[HourlyOut]
     top_products: list[ProductStatsOut]
+    # Every product sold in the workday, most units first.
+    products: list[ProductStatsOut]
     best_hour: int | None
     cost_incomplete: bool
     margin_cop: int | None
+    # Options chosen (flavors, bases...), most units first.
+    options: list[OptionSalesOut]
 
 
 class HourlyAverageOut(Schema):

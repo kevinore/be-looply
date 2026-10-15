@@ -18,6 +18,8 @@ ERROR_CATALOG: dict[str, tuple[int, str]] = {
     ),
     "product_invalid": (422, "Uno de los productos ya no está disponible."),
     "prize_target_invalid": (422, "Ese premio no aplica a esa bebida."),
+    # Not in 14.2: product options (migration 0005).
+    "options_invalid": (422, "Revisa las opciones del producto."),
     "invalid_credentials": (401, "Correo o contraseña incorrectos."),
     "not_authenticated": (401, "Tu sesión terminó. Ingresa de nuevo."),
     "forbidden": (403, "No tienes permiso para esta acción."),
@@ -33,7 +35,6 @@ ERROR_CATALOG: dict[str, tuple[int, str]] = {
     "claim_already_claimed": (409, "Esta compra ya fue reclamada."),
     "workday_not_open": (409, "Abre la jornada para vender."),
     "workday_already_open": (409, "Ya hay una jornada abierta."),
-    "workday_already_closed_today": (409, "La jornada de hoy ya se cerró."),
     "sale_not_linkable": (409, "Esta venta ya no se puede modificar."),
     "sale_has_prize": (
         409,
@@ -55,7 +56,8 @@ ERROR_CATALOG: dict[str, tuple[int, str]] = {
 CONSTRAINT_ERRORS: dict[str, str] = {
     "customer_business_id_phone_key": "customer_exists",
     "workday_one_open": "workday_already_open",
-    "workday_business_id_local_date_key": "workday_already_closed_today",
+    # Two requests opening the first workday of the day at once.
+    "workday_business_id_local_date_key": "workday_already_open",
     "prize_one_per_sale": "prize_already_in_sale",
 }
 

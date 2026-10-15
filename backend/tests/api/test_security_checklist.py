@@ -69,7 +69,7 @@ def op_routes():
 
 
 def test_op_routes_are_collected():
-    assert len(list(op_routes())) == 21  # 14.1: 22 operator routes minus login
+    assert len(list(op_routes())) == 22  # 14.1: 23 operator routes minus login
 
 
 @pytest.mark.parametrize(("method", "path"), sorted(op_routes()))
@@ -346,7 +346,7 @@ def test_docs_disabled_in_production():
     assert out.returncode == 0, out.stderr
     docs, redoc, openapi, paths = out.stdout.split()
     assert (docs, redoc, openapi) == ("None", "None", "None")
-    assert int(paths) == 35
+    assert int(paths) == 36
 
 
 async def test_docs_enabled_outside_production(client):

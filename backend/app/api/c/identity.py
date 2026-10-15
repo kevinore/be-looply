@@ -34,6 +34,7 @@ def claim_result_out(result: ClaimResult) -> dict:
         "card": result.card,
         "counted": result.counted,
         "new_spins": result.new_spins,
+        "stamp_eligible": result.stamp_eligible,
     }
 
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Integer, Text, text
+from sqlalchemy import Boolean, ForeignKey, Integer, Text, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,3 +28,5 @@ class Sale(Base):
     voided_at: Mapped[datetime | None] = mapped_column(Tstz)
     voided_by: Mapped[UUID | None] = mapped_column(ForeignKey("operator.id"))
     void_reason: Mapped[str | None] = mapped_column(Text)
+    # Copied from the products when the sale is created (services/stamps.py).
+    earns_stamp: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))

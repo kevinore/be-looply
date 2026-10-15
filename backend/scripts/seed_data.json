@@ -20,20 +20,299 @@
       "privacy_policy_url": null
     }
   },
+  "categories": [
+    {
+      "name": "Bebidas",
+      "sort_order": 1
+    },
+    {
+      "name": "Helados",
+      "sort_order": 2
+    }
+  ],
+  "option_groups": [
+    {
+      "name": "Base",
+      "min_select": 1,
+      "max_select": 1,
+      "sort_order": 1,
+      "options": [
+        {
+          "name": "Yogurt griego",
+          "sort_order": 1
+        },
+        {
+          "name": "Avena",
+          "sort_order": 2
+        }
+      ]
+    },
+    {
+      "name": "Té",
+      "min_select": 1,
+      "max_select": 1,
+      "sort_order": 2,
+      "options": [
+        {
+          "name": "Chai pistacho",
+          "sort_order": 1
+        },
+        {
+          "name": "Matcha",
+          "sort_order": 2
+        }
+      ]
+    },
+    {
+      "name": "Sabor paleta",
+      "min_select": 1,
+      "max_select": 1,
+      "sort_order": 3,
+      "options": [
+        {
+          "name": "Lulo",
+          "sort_order": 1
+        },
+        {
+          "name": "Fresa",
+          "sort_order": 2
+        },
+        {
+          "name": "Piña",
+          "sort_order": 3
+        },
+        {
+          "name": "Frutas tropicales",
+          "sort_order": 4
+        }
+      ]
+    },
+    {
+      "name": "Sabor de leche",
+      "min_select": 1,
+      "max_select": 1,
+      "sort_order": 4,
+      "options": [
+        {
+          "name": "Arequipe",
+          "sort_order": 1
+        },
+        {
+          "name": "Queso bocadillo",
+          "sort_order": 2
+        },
+        {
+          "name": "Coco",
+          "sort_order": 3
+        },
+        {
+          "name": "Vainilla Oreo",
+          "sort_order": 4
+        },
+        {
+          "name": "Chocolate",
+          "sort_order": 5
+        },
+        {
+          "name": "Maracuyá",
+          "sort_order": 6
+        },
+        {
+          "name": "Frutos rojos",
+          "sort_order": 7
+        }
+      ]
+    },
+    {
+      "name": "Sabor especial",
+      "min_select": 1,
+      "max_select": 1,
+      "sort_order": 5,
+      "options": [
+        {
+          "name": "Tiramisú",
+          "sort_order": 1
+        },
+        {
+          "name": "Whisky",
+          "sort_order": 2
+        },
+        {
+          "name": "Arándanos",
+          "sort_order": 3
+        }
+      ]
+    }
+  ],
   "products": [
-    { "sort_order": 1, "name": "Berry Bliss", "price_cop": 14000, "cost_cop": null },
-    { "sort_order": 2, "name": "Blue Mist", "price_cop": 14000, "cost_cop": null },
-    { "sort_order": 3, "name": "Sunset Passion", "price_cop": 14000, "cost_cop": null },
-    { "sort_order": 4, "name": "Strawberry Soda", "price_cop": 12000, "cost_cop": null },
-    { "sort_order": 5, "name": "Passion Soda", "price_cop": 12000, "cost_cop": null },
-    { "sort_order": 6, "name": "Green Chai Latte", "price_cop": 16000, "cost_cop": null },
-    { "sort_order": 7, "name": "Amber Matcha Latte", "price_cop": 16000, "cost_cop": null }
+    {
+      "sort_order": 1,
+      "name": "Berry Bliss",
+      "price_cop": 15000,
+      "cost_cop": null,
+      "description": "Frutos rojos",
+      "option_groups": [
+        "Base",
+        "Té"
+      ],
+      "photo_url": "/products/berry-bliss.webp",
+      "category": "Bebidas"
+    },
+    {
+      "sort_order": 2,
+      "name": "Blue Mist",
+      "price_cop": 15000,
+      "cost_cop": null,
+      "description": "Arándanos",
+      "option_groups": [
+        "Base",
+        "Té"
+      ],
+      "photo_url": "/products/blue-mist.webp",
+      "category": "Bebidas"
+    },
+    {
+      "sort_order": 3,
+      "name": "Sunset Passion",
+      "price_cop": 15000,
+      "cost_cop": null,
+      "description": "Frutos amarillos",
+      "option_groups": [
+        "Base",
+        "Té"
+      ],
+      "photo_url": "/products/sunset-passion.webp",
+      "category": "Bebidas"
+    },
+    {
+      "sort_order": 4,
+      "name": "Strawberry Refresher",
+      "price_cop": 13000,
+      "cost_cop": null,
+      "renamed_from": "Strawberry Soda",
+      "photo_url": "/products/strawberry-refresher.webp",
+      "category": "Bebidas"
+    },
+    {
+      "sort_order": 5,
+      "name": "Passion Refresher",
+      "price_cop": 13000,
+      "cost_cop": null,
+      "renamed_from": "Passion Soda",
+      "photo_url": "/products/passion-refresher.webp",
+      "category": "Bebidas"
+    },
+    {
+      "sort_order": 6,
+      "name": "Green Chai Latte",
+      "price_cop": 16000,
+      "cost_cop": null,
+      "active": false,
+      "category": "Bebidas"
+    },
+    {
+      "sort_order": 7,
+      "name": "Amber Matcha Latte",
+      "price_cop": 16000,
+      "cost_cop": null,
+      "active": false,
+      "category": "Bebidas"
+    },
+    {
+      "sort_order": 10,
+      "name": "Paleta",
+      "price_cop": 5000,
+      "category": "Helados",
+      "earns_stamp": false,
+      "prize_eligible": false,
+      "cost_cop": null,
+      "photo_url": "/products/paleta.webp",
+      "option_groups": [
+        "Sabor paleta"
+      ]
+    },
+    {
+      "sort_order": 11,
+      "name": "Helado de leche",
+      "price_cop": 5000,
+      "category": "Helados",
+      "earns_stamp": false,
+      "prize_eligible": false,
+      "cost_cop": null,
+      "photo_url": "/products/helado-de-leche.webp",
+      "option_groups": [
+        "Sabor de leche"
+      ]
+    },
+    {
+      "sort_order": 12,
+      "name": "Helado especial",
+      "price_cop": 7000,
+      "category": "Helados",
+      "earns_stamp": false,
+      "prize_eligible": false,
+      "cost_cop": null,
+      "photo_url": "/products/helado-especial.webp",
+      "option_groups": [
+        "Sabor especial"
+      ]
+    }
   ],
   "prize_catalog": [
-    { "sort_order": 1, "name": "10% de descuento", "short_label": "10% dto", "type": "percent_off", "value": 10, "max_value_cop": 16000, "weight": 40, "color": "primary", "expires_days": 90 },
-    { "sort_order": 2, "name": "Cold foam o topping extra", "short_label": "Topping", "type": "extra_item", "value": 0, "max_value_cop": null, "weight": 25, "color": "secondary", "expires_days": 90 },
-    { "sort_order": 3, "name": "20% de descuento", "short_label": "20% dto", "type": "percent_off", "value": 20, "max_value_cop": 16000, "weight": 20, "color": "primary", "expires_days": 90 },
-    { "sort_order": 4, "name": "50% de descuento", "short_label": "50% dto", "type": "percent_off", "value": 50, "max_value_cop": 16000, "weight": 10, "color": "ink", "expires_days": 90 },
-    { "sort_order": 5, "name": "Bebida gratis", "short_label": "Gratis", "type": "free_item", "value": 0, "max_value_cop": 16000, "weight": 5, "color": "ink", "expires_days": 90 }
+    {
+      "sort_order": 1,
+      "name": "10% de descuento",
+      "short_label": "10% dto",
+      "type": "percent_off",
+      "value": 10,
+      "max_value_cop": 16000,
+      "weight": 40,
+      "color": "primary",
+      "expires_days": 90
+    },
+    {
+      "sort_order": 2,
+      "name": "Cold foam o topping extra",
+      "short_label": "Topping",
+      "type": "extra_item",
+      "value": 0,
+      "max_value_cop": null,
+      "weight": 25,
+      "color": "secondary",
+      "expires_days": 90
+    },
+    {
+      "sort_order": 3,
+      "name": "20% de descuento",
+      "short_label": "20% dto",
+      "type": "percent_off",
+      "value": 20,
+      "max_value_cop": 16000,
+      "weight": 20,
+      "color": "primary",
+      "expires_days": 90
+    },
+    {
+      "sort_order": 4,
+      "name": "50% de descuento",
+      "short_label": "50% dto",
+      "type": "percent_off",
+      "value": 50,
+      "max_value_cop": 16000,
+      "weight": 10,
+      "color": "ink",
+      "expires_days": 90
+    },
+    {
+      "sort_order": 5,
+      "name": "Bebida gratis",
+      "short_label": "Gratis",
+      "type": "free_item",
+      "value": 0,
+      "max_value_cop": 16000,
+      "weight": 5,
+      "color": "ink",
+      "expires_days": 90
+    }
   ]
 }

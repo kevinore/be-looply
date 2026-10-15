@@ -117,6 +117,7 @@ async def test_extra_item_at_creation(
         "unit_price_cop": 0,
         "discount_cop": 0,
         "prize_award_id": award_id,
+        "options": [],
     }
     assert sale["total_cop"] == 14000
 

@@ -87,14 +87,3 @@ def test_void_sale_without_reason(rows: Rows, base: Base):
             "now(), now(), %s)",
             (base.business_id, base.workday_id, base.operator_id, base.operator_id),
         )
-
-
-def test_two_claimed_sales_same_workday_count_once(rows: Rows, base: Base):
-    # R8
-    rows.sale(base.business_id, base.workday_id, base.operator_id, base.customer_id)
-    rows.sale(base.business_id, base.workday_id, base.operator_id, base.customer_id)
-    purchases = rows.one(
-        "SELECT purchases FROM v_customer_purchases WHERE customer_id = %s",
-        base.customer_id,
-    )
-    assert purchases == 1

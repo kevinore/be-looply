@@ -6,9 +6,11 @@ import pytest
 from alembic import command
 from alembic.config import Config
 
-# Local database from docker-compose.test.yml (never Neon).
-OWNER_URL = "postgresql://owner:owner@localhost:5433/app_test"
-RUNTIME_URL = "postgresql://app_runtime:runtime@localhost:5433/app_test"
+# Local database from docker-compose.test.yml (never Neon). TEST_DB_PORT overrides
+# the port when 5433 is taken by something else on this machine.
+TEST_DB_PORT = os.environ.get("TEST_DB_PORT", "5433")
+OWNER_URL = f"postgresql://owner:owner@localhost:{TEST_DB_PORT}/app_test"
+RUNTIME_URL = f"postgresql://app_runtime:runtime@localhost:{TEST_DB_PORT}/app_test"
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 

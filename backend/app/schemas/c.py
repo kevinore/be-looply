@@ -8,6 +8,7 @@ from pydantic import Field
 
 from app.schemas.card import CardOut
 from app.schemas.common import Schema
+from app.schemas.sale import SaleItemOptionOut
 
 
 class PublicBusinessOut(Schema):
@@ -55,6 +56,7 @@ class HistoryItem(Schema):
     qty: int
     unit_price_cop: int
     discount_cop: int
+    options: list[SaleItemOptionOut]
 
 
 class HistorySale(Schema):

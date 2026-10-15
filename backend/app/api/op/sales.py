@@ -27,6 +27,7 @@ def claim_result_out(result: ClaimResult) -> dict:
         "card": result.card,
         "counted": result.counted,
         "new_spins": result.new_spins,
+        "stamp_eligible": result.stamp_eligible,
     }
 
 
@@ -105,6 +106,11 @@ async def redeem_prize(
     async with db.begin():
         sale = await sales.lock_modifiable_sale(db, ctx, sale_id, "claimed")
         await prizes.redeem_on_paid_sale(
-            db, sale, body.prize_award_id, body.product_id, ctx.operator
+            db,
+            sale,
+            body.prize_award_id,
+            body.product_id,
+            ctx.operator,
+            body.option_ids,
         )
         return await sales.sale_detail(db, sale)

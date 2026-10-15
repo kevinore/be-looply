@@ -10,7 +10,7 @@ from app.core.errors import AppError
 from app.core.time import end_of_local_day
 from app.models import Customer, PrizeAward, PrizeCatalog, Product, Sale, SaleItem
 from app.schemas.sale import SaleCreateIn
-from app.services import customers, prizes
+from app.services import customers, options, prizes
 from app.services.auth_operator import OperatorContext
 from app.services.claims import ClaimResult, link_sale_to_customer, reconcile_spins
 from app.services.events import emit_event
@@ -44,7 +44,7 @@ async def create_sale(
     workday = await require_open_workday(db, business.id)
 
     # 3. R3: prices always come from the database.
-    wanted = {item.product_id: item.qty for item in body.items}
+    wanted = {item.product_id for item in body.items}
     products = {
         p.id: p
         for p in (
@@ -59,20 +59,29 @@ async def create_sale(
     }
     if len(products) != len(wanted):
         raise AppError("product_invalid")
+    groups = await options.product_groups(db, list(wanted))
 
-    # 4. Price and cost are copied to sale_item.
-    lines = [
-        {
-            "product_id": product_id,
-            "label": products[product_id].name,
-            "qty": qty,
-            "unit_price_cop": products[product_id].price_cop,
-            "unit_cost_cop": products[product_id].cost_cop,
-            "discount_cop": 0,
-            "prize_award_id": None,
-        }
-        for product_id, qty in wanted.items()
-    ]
+    # 4. Price and cost are copied to sale_item; chosen options to sale_item_option.
+    # The unit price includes the price of the options.
+    lines = []
+    for item in body.items:
+        product = products[item.product_id]
+        chosen = options.resolve_choices(
+            groups.get(item.product_id, []), item.option_ids
+        )
+        lines.append(
+            {
+                "product_id": product.id,
+                "label": product.name,
+                "qty": item.qty,
+                "unit_price_cop": product.price_cop
+                + sum(c.price_delta_cop for _, c in chosen),
+                "unit_cost_cop": product.cost_cop,
+                "discount_cop": 0,
+                "prize_award_id": None,
+                "options": options.option_rows(chosen),
+            }
+        )
 
     # 5.
     customer = None
@@ -97,6 +106,10 @@ async def create_sale(
         award, prize = await prizes.lock_valid_prize(
             db, business.id, customer.id, body.prize_award_id
         )
+        # R17: only products that take prizes (not e.g. ice creams).
+        target = products.get(body.prize_target_product_id)
+        if target is not None and not target.prize_eligible:
+            raise AppError("prize_target_invalid")
         prizes.apply_at_creation(prize, award, lines, body.prize_target_product_id)
 
     # 7.
@@ -115,10 +128,17 @@ async def create_sale(
         idempotency_key=idempotency_key,
         claim_token=secrets.token_urlsafe(24),
         claim_expires_at=end_of_local_day(business.timezone),  # R7
+        # R8: earns a stamp only with at least one product that earns stamps.
+        earns_stamp=any(p.earns_stamp for p in products.values()),
     )
     db.add(sale)
     await db.flush()
-    db.add_all(SaleItem(sale_id=sale.id, **line) for line in lines)
+    for line in lines:
+        chosen = line.pop("options", [])
+        item = SaleItem(sale_id=sale.id, **line)
+        db.add(item)
+        await db.flush()
+        options.add_item_options(db, item, chosen)
     await db.flush()
     await db.refresh(sale)
 
@@ -134,7 +154,14 @@ async def create_sale(
         payload={
             "total_cop": total,
             "payment_method": body.payment_method,
-            "items": [{"product_id": str(k), "qty": v} for k, v in wanted.items()],
+            "items": [
+                {
+                    "product_id": str(i.product_id),
+                    "qty": i.qty,
+                    "option_ids": [str(o) for o in i.option_ids],
+                }
+                for i in body.items
+            ],
         },
     )
 
@@ -165,13 +192,15 @@ def claim_url(sale: Sale) -> str:
 
 
 async def sale_detail(db: AsyncSession, sale: Sale) -> dict:
-    items = (
-        await db.execute(
-            select(SaleItem)
-            .where(SaleItem.sale_id == sale.id)
-            .order_by(SaleItem.created_at)
-        )
-    ).scalars()
+    items = list(
+        (
+            await db.execute(
+                select(SaleItem)
+                .where(SaleItem.sale_id == sale.id)
+                .order_by(SaleItem.created_at)
+            )
+        ).scalars()
+    )
     customer = None
     if sale.customer_id is not None:
         c = await db.get(Customer, sale.customer_id)
@@ -186,7 +215,7 @@ async def sale_detail(db: AsyncSession, sale: Sale) -> dict:
         "status": sale.status,
         "total_cop": sale.total_cop,
         "payment_method": sale.payment_method,
-        "items": list(items),
+        "items": await options.item_dicts(db, items),
         "claim_url": claim_url(sale),
         "claim_expires_at": sale.claim_expires_at,
         "claim_method": sale.claim_method,

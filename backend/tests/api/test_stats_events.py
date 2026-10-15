@@ -9,10 +9,10 @@ from tests.api.conftest import claim_token, make_client, register, sell
 
 
 async def day_of_sales(owner, seeded, owner_conn):
-    """2 Berry (cash), 1 Latte (nequi, claimed), 1 voided Berry."""
+    """2 Berry (cash), 1 Latte (transfer, claimed), 1 voided Berry."""
     berry, latte = seeded.products["Berry Bliss"], seeded.products["Green Chai Latte"]
     await sell(owner, [(berry, 2)])
-    claimed = (await sell(owner, [(latte, 1)], payment_method="nequi")).json()
+    claimed = (await sell(owner, [(latte, 1)], payment_method="transfer")).json()
     async with make_client() as c:
         await register(c, claim_token(owner_conn, claimed["id"]))
     voided = (await sell(owner, [(berry, 5)])).json()
@@ -65,6 +65,9 @@ async def test_workday_stats(owner, open_workday, seeded, owner_conn):
     assert [p["label"] for p in body["top_products"]] == [
         "Berry Bliss",
         "Green Chai Latte",
+    ]
+    assert [p["label"] for p in body["products"]] == [
+        p["label"] for p in body["top_products"]
     ]
     berry = body["top_products"][0]
     assert (berry["units"], berry["net_cop"], berry["margin_cop"]) == (2, 28000, 18000)
