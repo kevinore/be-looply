@@ -1,5 +1,5 @@
 {
-  "_comment": "MOCK DATA. Replace prices, coordinates, colors, logo and prize catalog with the real values, then re-run scripts/seed.py (it updates existing rows).",
+  "_comment": "Real data of the first business, used for dev and production. Re-run scripts/seed.py after editing (it updates existing rows; the prize catalog is only inserted for a business without prizes).",
   "business": {
     "slug": "que-fresh",
     "name": "Qué Fresh",
@@ -17,7 +17,17 @@
         "ink": "#1A1A1A",
         "background": "#F4F1EC"
       },
-      "privacy_policy_url": null
+      "privacy_policy_url": "/client/privacy",
+      "legal": {
+        "legal_name": null,
+        "id_type": "NIT",
+        "id_number": null,
+        "address": null,
+        "city": "Bogotá D.C.",
+        "email": null,
+        "phone": null,
+        "effective_date": "2026-10-16"
+      }
     }
   },
   "categories": [
