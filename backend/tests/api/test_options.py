@@ -68,7 +68,7 @@ def seed_data(**changes) -> dict:
 async def menu(owner, seeded) -> dict:
     """Seeds the option groups and returns {product name: product} from the API."""
     seed(OWNER_URL, seed_data())
-    products = (await owner.get("/api/op/products")).json()
+    products = (await owner.get("/api/admin/products")).json()
     return {p["name"]: p for p in products}
 
 
@@ -88,7 +88,7 @@ def line(product: dict, qty: int, *names: str) -> dict:
 async def post_sale(client, items: list[dict], **extra):
     body = {"items": items, "payment_method": "cash", **extra}
     return await client.post(
-        "/api/op/sales", json=body, headers={"Idempotency-Key": str(uuid4())}
+        "/api/admin/sales", json=body, headers={"Idempotency-Key": str(uuid4())}
     )
 
 
@@ -139,7 +139,7 @@ async def test_sale_with_options(owner, open_workday, menu, owner_conn):
         "UPDATE option_choice SET name = 'Avena light' WHERE name = 'Avena'"
     )
     owner_conn.commit()
-    again = (await owner.get(f"/api/op/sales/{sale['id']}")).json()
+    again = (await owner.get(f"/api/admin/sales/{sale['id']}")).json()
     assert again["items"][1]["options"][0]["option_name"] == "Avena"
 
 
@@ -201,7 +201,7 @@ async def test_optional_multi_choice_group(owner, open_workday, menu):
     soda_row = next(p for p in data["products"] if p["name"] == "Passion Soda")
     soda_row["option_groups"] = ["Toppings"]
     seed(OWNER_URL, data)
-    products = (await owner.get("/api/op/products")).json()
+    products = (await owner.get("/api/admin/products")).json()
     soda = next(p for p in products if p["name"] == "Passion Soda")
     ids = option_ids(soda)
 
@@ -261,7 +261,7 @@ async def test_free_item_on_paid_sale_with_options(
         owner, seeded, owner_conn, customer_client, rng, "Bebida gratis"
     )
     p = menu["Sunset Passion"]
-    url = f"/api/op/sales/{sale_id}/redeem-prize"
+    url = f"/api/admin/sales/{sale_id}/redeem-prize"
     r = await owner.post(url, json={"prize_award_id": award_id, "product_id": p["id"]})
     assert r.json()["error"]["code"] == "options_invalid"
     ids = option_ids(p)
@@ -289,20 +289,20 @@ async def test_options_in_lists_history_and_csv(
     sale = (await post_sale(owner, [line(p, 1, "Avena", "Matcha")])).json()
     await register(customer_client, claim_token(owner_conn, sale["id"]))
 
-    sales = (await owner.get(f"/api/op/workdays/{open_workday['id']}/sales")).json()
+    sales = (await owner.get(f"/api/admin/workdays/{open_workday['id']}/sales")).json()
     assert [o["option_name"] for o in sales["items"][0]["items"][0]["options"]] == [
         "Avena",
         "Matcha",
     ]
 
-    history = (await customer_client.get("/api/c/history")).json()
+    history = (await customer_client.get("/api/client/history")).json()
     assert [o["option_name"] for o in history[0]["items"][0]["options"]] == [
         "Avena",
         "Matcha",
     ]
 
     today = local_today("America/Bogota").isoformat()
-    r = await owner.get(f"/api/op/export/sales.csv?from={today}&to={today}")
+    r = await owner.get(f"/api/admin/export/sales.csv?from={today}&to={today}")
     rows = list(csv.DictReader(io.StringIO(r.text)))
     assert rows[0]["options"] == "Base: Avena; Té: Matcha"
 
@@ -323,7 +323,7 @@ async def test_seed_is_idempotent_and_unlinks(owner, seeded, owner_conn):
     seed(OWNER_URL, data)
     p = next(
         x
-        for x in (await owner.get("/api/op/products")).json()
+        for x in (await owner.get("/api/admin/products")).json()
         if x["name"] == "Sunset Passion"
     )
     assert [g["name"] for g in p["option_groups"]] == ["Base"]
@@ -334,7 +334,7 @@ async def test_seed_is_idempotent_and_unlinks(owner, seeded, owner_conn):
     # Retiring a product hides it from the sale screen; its rows stay.
     data["products"][1]["active"] = False
     seed(OWNER_URL, data)
-    names = [x["name"] for x in (await owner.get("/api/op/products")).json()]
+    names = [x["name"] for x in (await owner.get("/api/admin/products")).json()]
     assert "Green Chai Latte" not in names
 
 
@@ -356,9 +356,9 @@ async def test_option_sales_in_workday_stats(owner, open_workday, menu):
         owner, [line(p, 2, "Avena", "Matcha"), line(p, 1, "Avena", "Chai pistacho")]
     )
     voided = (await post_sale(owner, [line(p, 5, "Yogurt griego", "Matcha")])).json()
-    await owner.post(f"/api/op/sales/{voided['id']}/void", json={"reason": "error"})
+    await owner.post(f"/api/admin/sales/{voided['id']}/void", json={"reason": "error"})
 
-    stats = (await owner.get(f"/api/op/stats/workdays/{open_workday['id']}")).json()
+    stats = (await owner.get(f"/api/admin/stats/workdays/{open_workday['id']}")).json()
     rows = [(o["group_name"], o["option_name"], o["units"]) for o in stats["options"]]
     # Void sales don't count; most units first.
     assert rows == [
@@ -367,3 +367,24 @@ async def test_option_sales_in_workday_stats(owner, open_workday, menu):
         ("Té", "Chai pistacho", 1),
     ]
     assert {o["category"] for o in stats["options"]} == {None}
+
+
+async def test_seed_renames_a_choice_in_place(owner, open_workday, menu, owner_conn):
+    p = menu["Sunset Passion"]
+    sale = (await post_sale(owner, [line(p, 1, "Avena", "Matcha")])).json()
+    old_id = option_ids(p)["Avena"]
+
+    groups = copy.deepcopy(OPTION_GROUPS)
+    groups[0]["options"][1].update(name="Leche de Avena", renamed_from="Avena")
+    seed(OWNER_URL, seed_data(option_groups=groups))
+    # Running it again (new name already there) changes nothing.
+    seed(OWNER_URL, seed_data(option_groups=groups))
+
+    rows = owner_conn.execute(
+        "SELECT id, name, price_delta_cop FROM option_choice "
+        "WHERE name IN ('Avena', 'Leche de Avena')"
+    ).fetchall()
+    assert [(str(r[0]), r[1], r[2]) for r in rows] == [(old_id, "Leche de Avena", 1000)]
+    # Past sales keep the name they were sold with (sale_item_option is a copy).
+    again = (await owner.get(f"/api/admin/sales/{sale['id']}")).json()
+    assert again["items"][0]["options"][0]["option_name"] == "Avena"

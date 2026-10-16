@@ -27,6 +27,8 @@ class ProductOut(Schema):
     description: str | None
     # Section of the sale screen (e.g. "Bebidas"); null = no category.
     category: str | None
-    # R17: prizes apply only to these products.
+    category_id: UUID | None
+    # R17: prizes apply only to these products (and only to the prizes of their
+    # category, when the prize has one).
     prize_eligible: bool
     option_groups: list[OptionGroupOut]

@@ -155,7 +155,9 @@ async def client(migrated_db):
 
 async def logged_in(email: str) -> httpx.AsyncClient:
     c = make_client()
-    r = await c.post("/api/op/auth/login", json={"email": email, "password": PASSWORD})
+    r = await c.post(
+        "/api/admin/auth/login", json={"email": email, "password": PASSWORD}
+    )
     assert r.status_code == 200, r.text
     return c
 
@@ -178,7 +180,7 @@ async def operator(seeded):
 
 @pytest.fixture
 async def open_workday(owner) -> dict:
-    r = await owner.post("/api/op/workdays/open")
+    r = await owner.post("/api/admin/workdays/open")
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -211,7 +213,7 @@ def weather_api(monkeypatch, owner_conn, seeded):
 
 
 async def sell(client, items: list[tuple[UUID, int]], *, key=None, **extra):
-    """POST /api/op/sales with a fresh Idempotency-Key (unless given)."""
+    """POST /api/admin/sales with a fresh Idempotency-Key (unless given)."""
     from uuid import uuid4
 
     body = {
@@ -220,7 +222,7 @@ async def sell(client, items: list[tuple[UUID, int]], *, key=None, **extra):
         **{k: (str(v) if v is not None else None) for k, v in extra.items()},
     }
     return await client.post(
-        "/api/op/sales", json=body, headers={"Idempotency-Key": str(key or uuid4())}
+        "/api/admin/sales", json=body, headers={"Idempotency-Key": str(key or uuid4())}
     )
 
 
@@ -272,7 +274,7 @@ def claim_token(conn, sale_id) -> str:
 
 async def register(c, token, phone="310 123 4567", alias="Ana"):
     return await c.post(
-        "/api/c/register",
+        "/api/client/register",
         json={"phone": phone, "alias": alias, "consent": True, "claim_token": token},
     )
 
@@ -334,7 +336,7 @@ async def customer_with_prize(
     sale = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
     body = (await register(c, claim_token(conn, sale["id"]), phone=phone)).json()
     spin_id = body["new_spins"][0]["id"]
-    award = (await c.post(f"/api/c/spins/{spin_id}/spin")).json()["prize_award"]
+    award = (await c.post(f"/api/client/spins/{spin_id}/spin")).json()["prize_award"]
     return body["card"]["customer"]["id"], award["id"], sale["id"]
 
 

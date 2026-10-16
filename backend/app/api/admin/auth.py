@@ -13,7 +13,7 @@ from app.schemas.auth import LoginIn, OperatorMeOut
 from app.services import auth_operator
 from app.services.auth_operator import OperatorContext
 
-router = APIRouter(prefix="/api/op/auth", tags=["op: auth"])
+router = APIRouter(prefix="/api/admin/auth", tags=["admin: auth"])
 
 
 def me_body(ctx: OperatorContext) -> OperatorMeOut:
@@ -27,10 +27,10 @@ async def login(
     body: LoginIn, request: Request, response: Response, db: DbSession
 ) -> OperatorMeOut:
     rate_limit.enforce(
-        rate_limit.LOGIN_PER_IP, "op_login_ip", rate_limit.client_ip(request)
+        rate_limit.LOGIN_PER_IP, "admin_login_ip", rate_limit.client_ip(request)
     )
     rate_limit.enforce(
-        rate_limit.LOGIN_PER_EMAIL, "op_login_email", body.email.strip().lower()
+        rate_limit.LOGIN_PER_EMAIL, "admin_login_email", body.email.strip().lower()
     )
     async with db.begin():
         ctx, token = await auth_operator.login(

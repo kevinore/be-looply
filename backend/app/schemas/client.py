@@ -1,4 +1,4 @@
-"""Customer app (/api/c/*). Phone numbers only ever appear as phone_last4."""
+"""Customer app (/api/client/*). Phone numbers only ever appear as phone_last4."""
 
 from datetime import datetime
 from typing import Literal

@@ -20,6 +20,13 @@ ERROR_CATALOG: dict[str, tuple[int, str]] = {
     "prize_target_invalid": (422, "Ese premio no aplica a esa bebida."),
     # Not in 14.2: product options (migration 0005).
     "options_invalid": (422, "Revisa las opciones del producto."),
+    # Not in 14.2: wheel editor (PUT /api/admin/prizes/catalog).
+    "wheel_total_invalid": (
+        422,
+        "Los porcentajes de los premios activos deben sumar 100%.",
+    ),
+    "wheel_size_invalid": (422, "La ruleta necesita entre 2 y 12 premios activos."),
+    "prize_name_taken": (422, "Ya hay un premio con ese nombre."),
     "invalid_credentials": (401, "Correo o contraseña incorrectos."),
     "not_authenticated": (401, "Tu sesión terminó. Ingresa de nuevo."),
     "forbidden": (403, "No tienes permiso para esta acción."),
@@ -27,7 +34,7 @@ ERROR_CATALOG: dict[str, tuple[int, str]] = {
     "claim_not_found": (404, "No encontramos esa compra."),
     "customer_not_found": (404, "No encontramos ese cliente."),
     "sale_not_found": (404, "No encontramos esa venta."),
-    # Not in 14.2: needed by GET /api/op/stats/workdays/{id}.
+    # Not in 14.2: needed by GET /api/admin/stats/workdays/{id}.
     "workday_not_found": (404, "No encontramos esa jornada."),
     "spin_not_found": (404, "No encontramos ese giro."),
     "prize_not_found": (404, "No encontramos ese premio."),
@@ -45,6 +52,13 @@ ERROR_CATALOG: dict[str, tuple[int, str]] = {
     "prize_already_in_sale": (409, "Solo se puede usar un premio por compra."),
     "discount_needs_new_sale": (409, "Los descuentos se aplican en una compra nueva."),
     "spin_not_available": (409, "Este giro ya no está disponible."),
+    "prize_locked": (
+        409,
+        (
+            "Este premio ya fue ganado: no puedes cambiar su tipo ni su valor. "
+            "Desactívalo y crea uno nuevo."
+        ),
+    ),
     "claim_expired": (410, "Este código venció."),
     "claim_voided": (410, "Esta compra fue anulada."),
     "prize_expired": (410, "Este premio venció."),

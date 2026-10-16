@@ -106,9 +106,9 @@ async def create_sale(
         award, prize = await prizes.lock_valid_prize(
             db, business.id, customer.id, body.prize_award_id
         )
-        # R17: only products that take prizes (not e.g. ice creams).
+        # R17: only products that take this prize (its category).
         target = products.get(body.prize_target_product_id)
-        if target is not None and not target.prize_eligible:
+        if target is not None and not prizes.applies_to(prize, target):
             raise AppError("prize_target_invalid")
         prizes.apply_at_creation(prize, award, lines, body.prize_target_product_id)
 
@@ -188,7 +188,7 @@ async def get_sale(
 
 
 def claim_url(sale: Sale) -> str:
-    return f"{settings.PUBLIC_APP_URL.rstrip('/')}/c/claim/{sale.claim_token}"
+    return f"{settings.PUBLIC_APP_URL.rstrip('/')}/client/claim/{sale.claim_token}"
 
 
 async def sale_detail(db: AsyncSession, sale: Sale) -> dict:

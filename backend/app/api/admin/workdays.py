@@ -8,7 +8,7 @@ from app.core.db import DbSession
 from app.schemas.workday import WorkdayOut, WorkdaySalesPageOut, WorkdaySummaryOut
 from app.services import workdays
 
-router = APIRouter(prefix="/api/op/workdays", tags=["op: workdays"])
+router = APIRouter(prefix="/api/admin/workdays", tags=["admin: workdays"])
 
 
 @router.get("/current", response_model=WorkdayOut | None)

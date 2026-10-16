@@ -9,7 +9,7 @@ from app.core.db import DbSession
 from app.schemas.stats import HistoryStatsOut, WorkdayStatsOut
 from app.services import stats
 
-router = APIRouter(prefix="/api/op", tags=["op: stats"])
+router = APIRouter(prefix="/api/admin", tags=["admin: stats"])
 
 DateFrom = Annotated[date, Query(alias="from")]
 DateTo = Annotated[date, Query(alias="to")]

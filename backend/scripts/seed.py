@@ -1,12 +1,15 @@
 """Idempotent seed: business, option groups, products and prize catalog from seed_data.json.
 
-Looks up rows by business.slug, option_group.name, option_choice.name, product.name
-and prize_catalog.name; inserts or updates. Nothing is deleted (R19): to retire a
+Looks up rows by business.slug, option_group.name, option_choice.name and
+product.name; inserts or updates. The prize catalog is only inserted for a business
+that has no prizes yet: afterwards the owner manages it from the admin app (wheel
+editor), and weights are hundredths of a percent that add up to 10000. Nothing is deleted (R19): to retire a
 product, option group or choice, keep it in the file with "active": false. A
 product's "option_groups" list is complete: groups no longer listed are unlinked.
-To rename a product, set "name" to the new name and "renamed_from" to the old one:
-the same row (and its sales history) is kept. Products may name a "category"
-(a section of the sale screen) and turn off "earns_stamp" or "prize_eligible".
+To rename a product or an option choice, set "name" to the new name and
+"renamed_from" to the old one: the same row (and its sales history) is kept. Products may name a "category"
+(a section of the sale screen) and turn off "earns_stamp" or "prize_eligible". A prize
+may name a "category" too: it then applies only to the products of that category.
 Connects with MIGRATION_DATABASE_URL:
 
     uv run --env-file .env python scripts/seed.py
@@ -89,6 +92,12 @@ def upsert_option_group(conn: psycopg.Connection, business_id, g: dict) -> tuple
             "active = %s WHERE group_id = %s AND name = %s",
             (*values, group_id, c["name"]),
         )
+        if updated.rowcount == 0 and c.get("renamed_from"):
+            updated = conn.execute(
+                "UPDATE option_choice SET price_delta_cop = %s, sort_order = %s, "
+                "active = %s, name = %s WHERE group_id = %s AND name = %s",
+                (*values, c["name"], group_id, c["renamed_from"]),
+            )
         if updated.rowcount == 0:
             conn.execute(
                 "INSERT INTO option_choice (price_delta_cop, sort_order, active, "
@@ -184,36 +193,29 @@ def upsert_product(
     return created
 
 
-def upsert_prize(conn: psycopg.Connection, business_id, p: dict) -> bool:
-    row = conn.execute(
-        "SELECT id FROM prize_catalog WHERE business_id = %s AND name = %s FOR UPDATE",
-        (business_id, p["name"]),
-    ).fetchone()
+def insert_prize(
+    conn: psycopg.Connection, business_id, p: dict, categories: dict[str, object]
+) -> None:
+    category = p.get("category")
+    if category is not None and category not in categories:
+        raise SystemExit(f"Prize {p['name']!r}: unknown category {category!r}")
     values = (
         p["short_label"],
         p["type"],
         p["value"],
         p["max_value_cop"],
+        categories.get(category),
         p["weight"],
         p["expires_days"],
         p["color"],
         p["sort_order"],
     )
-    if row:
-        conn.execute(
-            "UPDATE prize_catalog SET short_label = %s, type = %s, value = %s, "
-            "max_value_cop = %s, weight = %s, expires_days = %s, color = %s, "
-            "sort_order = %s WHERE id = %s",
-            (*values, row[0]),
-        )
-        return False
     conn.execute(
-        "INSERT INTO prize_catalog (short_label, type, value, max_value_cop, weight, "
-        "expires_days, color, sort_order, business_id, name) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        "INSERT INTO prize_catalog (short_label, type, value, max_value_cop, "
+        "category_id, weight, expires_days, color, sort_order, business_id, name) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (*values, business_id, p["name"]),
     )
-    return True
 
 
 def seed(url: str, data: dict) -> dict[str, int]:
@@ -240,8 +242,16 @@ def seed(url: str, data: dict) -> dict[str, int]:
             created["product"] += upsert_product(
                 conn, business_id, p, groups, categories
             )
-        for p in data["prize_catalog"]:
-            created["prize_catalog"] += upsert_prize(conn, business_id, p)
+        # The wheel is managed by the owner in the admin app: only a business
+        # without prizes gets the starting ones, so a re-run never undoes edits.
+        has_prizes = conn.execute(
+            "SELECT EXISTS (SELECT 1 FROM prize_catalog WHERE business_id = %s)",
+            (business_id,),
+        ).fetchone()[0]
+        if not has_prizes:
+            for p in data["prize_catalog"]:
+                insert_prize(conn, business_id, p, categories)
+                created["prize_catalog"] += 1
     return created
 
 

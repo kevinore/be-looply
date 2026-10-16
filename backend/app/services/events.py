@@ -25,6 +25,7 @@ OPERATOR_EVENT_TYPES = frozenset(
         "prize_redeemed",
         "prize_restored",
         "void_left_redeemed_prize",
+        "prize_catalog_updated",
     }
 )
 CUSTOMER_EVENT_TYPES = frozenset(

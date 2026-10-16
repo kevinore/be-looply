@@ -3,10 +3,10 @@ from fastapi import APIRouter, Request, Response
 from app.api.deps import OptionalCustomer, PublicBusiness
 from app.core import rate_limit
 from app.core.db import DbSession
-from app.schemas.c import EventIn
+from app.schemas.client import EventIn
 from app.services.events import record_client_event
 
-router = APIRouter(prefix="/api/c", tags=["c: events"])
+router = APIRouter(prefix="/api/client", tags=["client: events"])
 
 
 @router.post("/events", status_code=204)

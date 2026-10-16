@@ -27,6 +27,8 @@ class OpCustomerPrizeOut(CardPrizeOut):
 
     value: int
     max_value_cop: int | None
+    # R17: the prize applies only to products of this category; null = any.
+    category_id: UUID | None
 
 
 class CustomerDetailOut(Schema):

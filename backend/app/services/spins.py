@@ -80,7 +80,7 @@ async def _response(
 ) -> dict:
     ids = [p.id for p in segments]
     return {
-        # Position of the prize in GET /api/c/wheel (None if no longer on the wheel).
+        # Position of the prize in GET /api/client/wheel (None if no longer on the wheel).
         "segment_index": ids.index(prize.id) if prize.id in ids else None,
         "prize_award": {
             "id": award.id,

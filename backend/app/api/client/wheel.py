@@ -8,10 +8,10 @@ from app.core.db import DbSession
 from app.core.errors import AppError
 from app.core.time import now_utc
 from app.models import PrizeAward, PrizeCatalog
-from app.schemas.c import PrizeDetailOut, SpinResultOut, WheelOut
+from app.schemas.client import PrizeDetailOut, SpinResultOut, WheelOut
 from app.services import prizes, spins
 
-router = APIRouter(prefix="/api/c", tags=["c: wheel"])
+router = APIRouter(prefix="/api/client", tags=["client: wheel"])
 
 
 @router.get("/wheel", response_model=WheelOut)

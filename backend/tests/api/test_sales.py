@@ -26,7 +26,7 @@ async def test_create_sale(owner, open_workday, seeded, owner_conn):
     token = owner_conn.execute(
         "SELECT claim_token FROM sale WHERE id = %s", (sale["id"],)
     ).fetchone()[0]
-    assert sale["claim_url"] == f"http://localhost:5173/c/claim/{token}"
+    assert sale["claim_url"] == f"http://localhost:5173/client/claim/{token}"
     # R3: price and cost copied into sale_item.
     assert owner_conn.execute(
         "SELECT unit_price_cop, unit_cost_cop FROM sale_item"
@@ -72,11 +72,11 @@ async def test_missing_or_invalid_idempotency_key(owner, open_workday, seeded):
         "items": [{"product_id": str(seeded.products["Berry Bliss"]), "qty": 1}],
         "payment_method": "cash",
     }
-    r = await owner.post("/api/op/sales", json=body)
+    r = await owner.post("/api/admin/sales", json=body)
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "validation_error"
     r = await owner.post(
-        "/api/op/sales", json=body, headers={"Idempotency-Key": "not-a-uuid"}
+        "/api/admin/sales", json=body, headers={"Idempotency-Key": "not-a-uuid"}
     )
     assert r.json()["error"]["code"] == "validation_error"
 
@@ -94,7 +94,7 @@ async def test_price_in_body_is_ignored(owner, open_workday, seeded):
         "total_cop": 1,
     }
     r = await owner.post(
-        "/api/op/sales", json=body, headers={"Idempotency-Key": str(uuid4())}
+        "/api/admin/sales", json=body, headers={"Idempotency-Key": str(uuid4())}
     )
     assert r.status_code == 201
     assert r.json()["total_cop"] == 14000
@@ -149,17 +149,17 @@ async def test_retired_payment_methods_rejected(
         "UPDATE sale SET payment_method = 'nequi' WHERE id = %s", (sale["id"],)
     )
     owner_conn.commit()
-    r = await owner.get(f"/api/op/sales/{sale['id']}")
+    r = await owner.get(f"/api/admin/sales/{sale['id']}")
     assert r.json()["payment_method"] == "nequi"
 
 
 async def test_get_sale_and_status(owner, open_workday, seeded):
     sale = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
-    r = await owner.get(f"/api/op/sales/{sale['id']}")
+    r = await owner.get(f"/api/admin/sales/{sale['id']}")
     assert r.json()["id"] == sale["id"]
-    r = await owner.get(f"/api/op/sales/{sale['id']}/status")
+    r = await owner.get(f"/api/admin/sales/{sale['id']}/status")
     assert r.json() == {"status": "paid", "customer": None}
-    r = await owner.get(f"/api/op/sales/{uuid4()}")
+    r = await owner.get(f"/api/admin/sales/{uuid4()}")
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "sale_not_found"
 
@@ -169,7 +169,7 @@ async def test_f4_manual_link(owner, open_workday, seeded, owner_conn):
     customer_id = make_customer(owner_conn, seeded.business_id)
     sale = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
 
-    found = (await owner.get("/api/op/customers/search?last4=4567")).json()
+    found = (await owner.get("/api/admin/customers/search?last4=4567")).json()
     assert found == [
         {
             "id": str(customer_id),
@@ -180,7 +180,7 @@ async def test_f4_manual_link(owner, open_workday, seeded, owner_conn):
         }
     ]
     r = await owner.post(
-        f"/api/op/sales/{sale['id']}/link", json={"customer_id": str(customer_id)}
+        f"/api/admin/sales/{sale['id']}/link", json={"customer_id": str(customer_id)}
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -194,13 +194,13 @@ async def test_f4_manual_link(owner, open_workday, seeded, owner_conn):
     types = {t for (t,) in owner_conn.execute("SELECT type FROM event").fetchall()}
     assert {"sale_claimed", "sale_linked_manual", "spin_unlocked"} <= types
 
-    status = (await owner.get(f"/api/op/sales/{sale['id']}/status")).json()
+    status = (await owner.get(f"/api/admin/sales/{sale['id']}/status")).json()
     assert status["status"] == "claimed"
     assert status["customer"]["alias"] == "Ana"
     assert status["customer"]["purchases"] == 1
 
     again = await owner.post(
-        f"/api/op/sales/{sale['id']}/link", json={"customer_id": str(customer_id)}
+        f"/api/admin/sales/{sale['id']}/link", json={"customer_id": str(customer_id)}
     )
     assert again.json()["error"]["code"] == "sale_not_linkable"
 
@@ -226,14 +226,14 @@ async def test_create_sale_with_unknown_customer(owner, open_workday, seeded):
 
 async def test_search_requires_4_digits(owner, seeded):
     for value in ("123", "12345", "abcd"):
-        r = await owner.get(f"/api/op/customers/search?last4={value}")
+        r = await owner.get(f"/api/admin/customers/search?last4={value}")
         assert r.json()["error"]["code"] == "validation_error"
 
 
 async def test_customer_detail(owner, open_workday, seeded, owner_conn):
     customer_id = make_customer(owner_conn, seeded.business_id)
     await sell(owner, [(seeded.products["Berry Bliss"], 1)], customer_id=customer_id)
-    r = await owner.get(f"/api/op/customers/{customer_id}")
+    r = await owner.get(f"/api/admin/customers/{customer_id}")
     body = r.json()
     assert body["alias"] == "Ana"
     assert body["phone_last4"] == "4567"

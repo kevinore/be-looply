@@ -17,7 +17,7 @@ async def test_photo_url(owner, seeded):
     seed(
         OWNER_URL, with_products(**{"Passion Soda": {"photo_url": "/products/x.webp"}})
     )
-    products = {p["name"]: p for p in (await owner.get("/api/op/products")).json()}
+    products = {p["name"]: p for p in (await owner.get("/api/admin/products")).json()}
     assert products["Passion Soda"]["photo_url"] == "/products/x.webp"
     assert products["Berry Bliss"]["photo_url"] is None
 
@@ -38,7 +38,7 @@ async def test_rename_keeps_the_same_product(owner, open_workday, seeded, owner_
     ).fetchall()
     assert rows == [(soda, "Passion Refresher")]
     # Past sales keep the name they were sold with (sale_item.label is a copy).
-    old = (await owner.get(f"/api/op/sales/{sale['id']}")).json()
+    old = (await owner.get(f"/api/admin/sales/{sale['id']}")).json()
     assert old["items"][0]["label"] == "Passion Soda"
     new = (await sell(owner, [(soda, 1)])).json()
     assert new["items"][0]["label"] == "Passion Refresher"

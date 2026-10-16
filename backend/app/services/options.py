@@ -71,7 +71,7 @@ async def product_groups(
 
 
 async def catalog(db: AsyncSession, business_id: UUID) -> list[dict]:
-    """GET /api/op/products: active products with their option groups.
+    """GET /api/admin/products: active products with their option groups.
 
     Ordered by category (sections of the sale screen), then by product. Products
     without an active category come last.
@@ -104,6 +104,7 @@ async def catalog(db: AsyncSession, business_id: UUID) -> list[dict]:
             "photo_url": p.photo_url,
             "description": p.description,
             "category": category[p.id],
+            "category_id": p.category_id,
             "prize_eligible": p.prize_eligible,
             "option_groups": [
                 {

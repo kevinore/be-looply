@@ -8,7 +8,7 @@ from app.core.db import DbSession
 from app.schemas.customer import CustomerDetailOut, CustomerSearchOut
 from app.services import customers
 
-router = APIRouter(prefix="/api/op/customers", tags=["op: customers"])
+router = APIRouter(prefix="/api/admin/customers", tags=["admin: customers"])
 
 
 @router.get("/search", response_model=list[CustomerSearchOut])
@@ -39,6 +39,7 @@ async def detail(customer_id: UUID, ctx: CurrentOperator, db: DbSession):
                 "expires_at": award.expires_at,
                 "value": prize.value,
                 "max_value_cop": prize.max_value_cop,
+                "category_id": prize.category_id,
             }
             for award, prize in await customers.active_prizes(db, customer.id)
         ],

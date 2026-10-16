@@ -25,7 +25,9 @@ def events(conn, type_):
 
 
 async def void(client, sale_id, reason="Cobro equivocado"):
-    return await client.post(f"/api/op/sales/{sale_id}/void", json={"reason": reason})
+    return await client.post(
+        f"/api/admin/sales/{sale_id}/void", json={"reason": reason}
+    )
 
 
 async def test_void_anonymous_sale(owner, open_workday, seeded, owner_conn):
@@ -60,7 +62,7 @@ async def test_void_welcome_available(
     r = await void(owner, sale["id"])
     assert r.json()["customer"]["alias"] == "Ana"  # customer_id kept as history
     assert [s[2] for s in spins(owner_conn)] == ["void"]
-    card = (await customer_client.get("/api/c/me")).json()
+    card = (await customer_client.get("/api/client/me")).json()
     assert card["purchases"] == 0
     assert card["available_spins"] == []
 
@@ -120,7 +122,7 @@ async def test_void_welcome_sale_with_other_same_day_sale(
     second = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
     await register(customer_client, claim_token(owner_conn, first["id"]))
     await customer_client.post(
-        "/api/c/claim", json={"claim_token": claim_token(owner_conn, second["id"])}
+        "/api/client/claim", json={"claim_token": claim_token(owner_conn, second["id"])}
     )
     await void(owner, first["id"])
     rows = spins(owner_conn)
@@ -129,7 +131,7 @@ async def test_void_welcome_sale_with_other_same_day_sale(
         ("welcome", "available"),
     ]
     assert rows[1][3] == second["id"]
-    assert (await customer_client.get("/api/c/me")).json()["purchases"] == 1
+    assert (await customer_client.get("/api/client/me")).json()["purchases"] == 1
 
 
 async def test_void_sale_that_completed_milestone(
@@ -140,7 +142,7 @@ async def test_void_sale_that_completed_milestone(
     add_past_purchases(owner_conn, seeded, customer_id, 4)
     sale = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
     r = await customer_client.post(
-        "/api/c/identify/confirm",
+        "/api/client/identify/confirm",
         json={
             "phone": "3101234567",
             "claim_token": claim_token(owner_conn, sale["id"]),
@@ -152,7 +154,7 @@ async def test_void_sale_that_completed_milestone(
     assert [s[2] for s in milestone] == ["void"]
     welcome = [s for s in spins(owner_conn) if s[0] == "welcome"]
     assert [s[2] for s in welcome] == ["available"]
-    assert (await customer_client.get("/api/c/me")).json()["purchases"] == 4
+    assert (await customer_client.get("/api/client/me")).json()["purchases"] == 4
 
 
 async def test_void_sale_that_won_and_used_the_prize(
@@ -163,7 +165,7 @@ async def test_void_sale_that_won_and_used_the_prize(
         owner, seeded, owner_conn, customer_client, rng, "Cold foam o topping extra"
     )
     await owner.post(
-        f"/api/op/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
+        f"/api/admin/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
     )
     await void(owner, sale_id)
     row = owner_conn.execute(
@@ -179,9 +181,9 @@ async def test_void_sale_that_won_and_used_the_prize(
     assert payload["redeemed_sale_id"] == sale_id
     assert events(owner_conn, "prize_restored") == 0
     assert events(owner_conn, "void_left_redeemed_prize") == 0
-    assert (await customer_client.get("/api/c/me")).json()["active_prizes"] == []
+    assert (await customer_client.get("/api/client/me")).json()["active_prizes"] == []
     # The prize line stays on the void sale as history.
-    detail = (await owner.get(f"/api/op/sales/{sale_id}")).json()
+    detail = (await owner.get(f"/api/admin/sales/{sale_id}")).json()
     assert detail["items"][1]["prize_award_id"] == award_id
 
 
@@ -215,7 +217,7 @@ async def test_operator_cannot_void_closed_workday_sale(
     owner, operator, open_workday, seeded
 ):
     sale = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
-    await owner.post("/api/op/workdays/current/close")
+    await owner.post("/api/admin/workdays/current/close")
     r = await void(operator, sale["id"])
     assert r.status_code == 403
     assert r.json()["error"]["code"] == "forbidden"
@@ -231,16 +233,16 @@ async def test_operator_can_void_open_workday_sale(operator, open_workday, seede
 async def test_unlink(owner, open_workday, seeded, owner_conn, customer_client):
     sale = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
     await register(customer_client, claim_token(owner_conn, sale["id"]))
-    r = await owner.post(f"/api/op/sales/{sale['id']}/unlink")
+    r = await owner.post(f"/api/admin/sales/{sale['id']}/unlink")
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "paid"
     assert r.json()["customer"] is None
     assert r.json()["claim_method"] is None
     assert [s[2] for s in spins(owner_conn)] == ["void"]
     assert events(owner_conn, "sale_unlinked") == 1
-    assert (await customer_client.get("/api/c/me")).json()["purchases"] == 0
+    assert (await customer_client.get("/api/client/me")).json()["purchases"] == 0
     # Back to paid: it can be linked again.
-    status = (await owner.get(f"/api/op/sales/{sale['id']}/status")).json()
+    status = (await owner.get(f"/api/admin/sales/{sale['id']}/status")).json()
     assert status == {"status": "paid", "customer": None}
 
 
@@ -252,14 +254,14 @@ async def test_unlink_sale_with_prize(
         owner, seeded, owner_conn, customer_client, rng, "Cold foam o topping extra"
     )
     await owner.post(
-        f"/api/op/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
+        f"/api/admin/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
     )
-    r = await owner.post(f"/api/op/sales/{sale_id}/unlink")
+    r = await owner.post(f"/api/admin/sales/{sale_id}/unlink")
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "sale_has_prize"
 
 
 async def test_unlink_needs_claimed_sale(owner, open_workday, seeded):
     sale = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
-    r = await owner.post(f"/api/op/sales/{sale['id']}/unlink")
+    r = await owner.post(f"/api/admin/sales/{sale['id']}/unlink")
     assert r.json()["error"]["code"] == "sale_not_linkable"

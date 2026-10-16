@@ -7,9 +7,9 @@ from fastapi import Response
 
 from app.core.config import settings
 
-OPERATOR_COOKIE = "op_session"
+OPERATOR_COOKIE = "admin_session"
 OPERATOR_SESSION_DAYS = 30
-CUSTOMER_COOKIE = "c_session"
+CUSTOMER_COOKIE = "client_session"
 CUSTOMER_SESSION_DAYS = 365
 
 _hasher = PasswordHasher()

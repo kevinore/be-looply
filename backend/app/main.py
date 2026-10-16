@@ -2,18 +2,18 @@ import sentry_sdk
 from fastapi import FastAPI
 
 from app.api import health
-from app.api.c import events as c_events
-from app.api.c import identity as c_identity
-from app.api.c import wheel as c_wheel
+from app.api.admin import auth as admin_auth
+from app.api.admin import customers as admin_customers
+from app.api.admin import events as admin_events
+from app.api.admin import prizes as admin_prizes
+from app.api.admin import products as admin_products
+from app.api.admin import sales as admin_sales
+from app.api.admin import stats as admin_stats
+from app.api.admin import workdays as admin_workdays
+from app.api.client import events as client_events
+from app.api.client import identity as client_identity
+from app.api.client import wheel as client_wheel
 from app.api.deps import origin_check_middleware
-from app.api.op import auth as op_auth
-from app.api.op import customers as op_customers
-from app.api.op import events as op_events
-from app.api.op import prizes as op_prizes
-from app.api.op import products as op_products
-from app.api.op import sales as op_sales
-from app.api.op import stats as op_stats
-from app.api.op import workdays as op_workdays
 from app.core.config import settings
 from app.core.errors import register_error_handlers
 
@@ -42,14 +42,14 @@ register_error_handlers(app)
 app.middleware("http")(origin_check_middleware)
 
 app.include_router(health.router)
-app.include_router(op_auth.router)
-app.include_router(op_workdays.router)
-app.include_router(op_products.router)
-app.include_router(op_sales.router)
-app.include_router(op_customers.router)
-app.include_router(op_prizes.router)
-app.include_router(op_stats.router)
-app.include_router(op_events.router)
-app.include_router(c_identity.router)
-app.include_router(c_wheel.router)
-app.include_router(c_events.router)
+app.include_router(admin_auth.router)
+app.include_router(admin_workdays.router)
+app.include_router(admin_products.router)
+app.include_router(admin_sales.router)
+app.include_router(admin_customers.router)
+app.include_router(admin_prizes.router)
+app.include_router(admin_stats.router)
+app.include_router(admin_events.router)
+app.include_router(client_identity.router)
+app.include_router(client_wheel.router)
+app.include_router(client_events.router)

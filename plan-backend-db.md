@@ -19,8 +19,8 @@
 
 ## 1. Qué construimos (resumen)
 
-- **App de operador** (`/op`): el operador arma la venta, cobra, muestra un QR único de esa venta, vincula clientes, redime premios y ve estadísticas.
-- **App de cliente** (`/c`): el cliente escanea el QR de su compra, se registra con celular + nombre (sin contraseña), acumula compras y gira una ruleta de premios.
+- **App de operador** (`/admin`): el operador arma la venta, cobra, muestra un QR único de esa venta, vincula clientes, redime premios y ve estadísticas.
+- **App de cliente** (`/client`): el cliente escanea el QR de su compra, se registra con celular + nombre (sin contraseña), acumula compras y gira una ruleta de premios.
 - **Sin modo offline.** Todo requiere conexión.
 - El backend es la **única** fuente de verdad: calcula precios, descuentos, contadores y premios. El frontend nunca decide nada de eso.
 
@@ -46,7 +46,7 @@
 | R14 | Un premio se puede redimir **desde el momento en que se gana**, incluso en la misma visita. |
 | R15 | Solo el **operador** redime premios. El cliente nunca marca un premio como usado. |
 | R16 | Máximo **1 premio por venta**. |
-| R17 | Todo premio aplica sobre **una unidad de una bebida**. `percent_off` y `free_item` tienen tope `max_value_cop`. |
+| R17 | Todo premio aplica sobre **una unidad de un producto** que acepta premios (`product.prize_eligible`) y, si el premio tiene categoría (`prize_catalog.category_id`), solo de esa categoría. `percent_off` y `free_item` tienen tope `max_value_cop`. *Decisión del dueño (2026-10-16): la ruleta incluye helados gratis, así que los helados aceptan premios, pero solo los de su categoría (migración `0008`); antes ningún premio aplicaba a helados.* |
 | R18 | `percent_off` solo se aplica al **crear** una venta (antes de cobrar). `free_item` y `extra_item` pueden aplicarse al crear una venta **o** sobre una venta ya cobrada del mismo cliente, en la jornada abierta, como línea de $0 neto. |
 | R19 | **Nada se borra.** Anular marca `void` y dispara cascada (sección 11.8). El rol de la app no tiene permiso `DELETE`. |
 | R20 | Toda acción que cambia estado emite un **evento** en la **misma transacción**. Los eventos no se editan ni se borran. |
@@ -713,7 +713,7 @@ Clase `AppError(code: str, status: int, message: str, extra: dict | None)`. Mane
 - `new_token()` = `secrets.token_urlsafe(32)`.
 - `hash_token(t)` = SHA-256 hexadecimal. **En la base solo se guarda el hash.**
 - `set_session_cookie(response, name, token, max_age)` con: `httponly=True`, `secure=settings.COOKIE_SECURE`, `samesite="lax"`, `path="/"`, **sin atributo `domain`** (así la cookie queda del dominio del frontend, que hace de proxy).
-- Nombres de cookie: `op_session` (operador, 30 días) y `c_session` (cliente, 365 días).
+- Nombres de cookie: `admin_session` (operador, 30 días) y `client_session` (cliente, 365 días).
 
 ### 10.5 Protección contra peticiones de otros sitios (CSRF)
 
@@ -729,12 +729,12 @@ Junto con `SameSite=Lax`, esto basta. **No** instales middleware CORS: el fronte
 
 | Endpoint | Límite | Clave |
 |---|---|---|
-| `POST /api/op/auth/login` | 5 / 15 min | email en minúsculas |
-| `POST /api/op/auth/login` | 20 / 15 min | IP |
-| `POST /api/c/register`, `/api/c/identify/confirm` | 10 / 10 min | IP |
-| `POST /api/c/register`, `/api/c/identify/confirm` | 5 / 10 min | `claim_token` |
-| `GET /api/c/claims/{token}` | 30 / min | IP |
-| `POST /api/c/events`, `/api/op/events` | 60 / min | IP |
+| `POST /api/admin/auth/login` | 5 / 15 min | email en minúsculas |
+| `POST /api/admin/auth/login` | 20 / 15 min | IP |
+| `POST /api/client/register`, `/api/client/identify/confirm` | 10 / 10 min | IP |
+| `POST /api/client/register`, `/api/client/identify/confirm` | 5 / 10 min | `claim_token` |
+| `GET /api/client/claims/{token}` | 30 / min | IP |
+| `POST /api/client/events`, `/api/admin/events` | 60 / min | IP |
 
 IP del cliente: primer valor de `X-Forwarded-For`; si no existe, la IP de la conexión. Uvicorn arranca con `--proxy-headers --forwarded-allow-ips="*"`.
 
@@ -778,7 +778,7 @@ Un modelo por tabla, **espejo exacto** de la migración (mismos nombres, tipos y
 ## 11. Fase 6 · Servicios y endpoints
 
 Convenciones de toda la API:
-- Prefijo `/api`. Operador en `/api/op/*`, cliente en `/api/c/*`.
+- Prefijo `/api`. Operador en `/api/admin/*`, cliente en `/api/client/*`.
 - JSON con `snake_case`. Dinero en enteros COP. Fechas en ISO 8601 UTC.
 - **Orden de bloqueos** para evitar interbloqueos, siempre: `sale` → `customer` → `spin` → `prize_award`. Usa `SELECT ... FOR UPDATE`.
 - Toda respuesta de cliente muestra el celular solo como `phone_last4`. Nunca el número completo.
@@ -790,22 +790,22 @@ Convenciones de toda la API:
 - `scripts/reset_operator_password.py`: pide email y nueva contraseña; actualiza el hash y **revoca todas sus sesiones** (`revoked_at = now()`).
 - Ambos usan `MIGRATION_DATABASE_URL`.
 
-**`POST /api/op/auth/login`** `{ "email", "password" }`
+**`POST /api/admin/auth/login`** `{ "email", "password" }`
 1. Normalizar email a minúsculas. Aplicar límites.
 2. Buscar operador activo por email.
 3. Si no existe: **igual** ejecutar `verify_password` contra un hash ficticio (para que el tiempo de respuesta no revele si el email existe) y responder `invalid_credentials` 401.
 4. Si la contraseña no coincide → `invalid_credentials` 401.
 5. Crear `operator_session` con `expires_at = now + 30 días`, `user_agent`.
-6. Poner cookie `op_session`.
+6. Poner cookie `admin_session`.
 7. Evento `operator_logged_in`.
 8. Responder `{ operator: {id, name, role}, business: {id, name, slug, branding} }`.
 
-**`POST /api/op/auth/logout`** → `revoked_at = now()`, borrar cookie, 204.
+**`POST /api/admin/auth/logout`** → `revoked_at = now()`, borrar cookie, 204.
 
-**`GET /api/op/auth/me`** → mismo cuerpo que el login.
+**`GET /api/admin/auth/me`** → mismo cuerpo que el login.
 
-**Dependencia `get_current_operator`** (la usan TODOS los endpoints `/api/op/*` salvo login):
-1. Leer cookie `op_session`. Si falta → `not_authenticated` 401.
+**Dependencia `get_current_operator`** (la usan TODOS los endpoints `/api/admin/*` salvo login):
+1. Leer cookie `admin_session`. Si falta → `not_authenticated` 401.
 2. Buscar sesión por `hash_token`. Debe existir, `revoked_at IS NULL`, `expires_at > now()`, operador `active`. Si no → 401.
 3. Entregar el operador (con su `business_id`).
 
@@ -813,9 +813,9 @@ Convenciones de toda la API:
 
 ### 11.2 Jornada
 
-**`GET /api/op/workdays/current`** → jornada abierta del negocio o `null`.
+**`GET /api/admin/workdays/current`** → jornada abierta del negocio o `null`.
 
-**`POST /api/op/workdays/open`**
+**`POST /api/admin/workdays/open`**
 1. `local_date = local_today(business.timezone)`.
 2. Si ya hay jornada abierta → `workday_already_open` 409 (devolver su id en `extra`).
 3. Si ya existe una jornada **cerrada** con esa fecha → **se reabre** (respuesta 200): `status='open'`, `closed_at`/`closed_by` a `NULL`, los QR pendientes de esa jornada vuelven a vencer al final del día local (R7) y evento `workday_reopened`. Una jornada por fecha: todas las ventas del día quedan en la misma. *Decisión del dueño (2026-10-13); antes era `workday_already_closed_today` 409.*
@@ -823,14 +823,14 @@ Convenciones de toda la API:
 5. Insertar con `day_type(local_date)`, `opened_by`.
 6. Evento `workday_opened` con `{weather_temp_c, weather_code, day_type}`.
 
-**`POST /api/op/workdays/current/close`**
+**`POST /api/admin/workdays/current/close`**
 1. Bloquear la jornada abierta. Si no hay → `workday_not_open` 409.
 2. `status='closed'`, `closed_at`, `closed_by`.
 3. Vencer QR pendientes: `UPDATE sale SET claim_expires_at = now() WHERE workday_id = … AND status = 'paid' AND claim_expires_at > now()`.
 4. Evento `workday_closed` con el resumen.
 5. Responder el resumen de `v_workday_summary`.
 
-**`GET /api/op/workdays/{id}/sales`** → todas las ventas de la jornada (anuladas incluidas), más recientes primero, con líneas y cliente. `workday_not_found` 404 si no es del negocio.
+**`GET /api/admin/workdays/{id}/sales`** → todas las ventas de la jornada (anuladas incluidas), más recientes primero, con líneas y cliente. `workday_not_found` 404 si no es del negocio.
 
 **Regla transversal:** todo endpoint que crea ventas, vincula o redime exige jornada abierta → si no, `workday_not_open` 409.
 
@@ -841,9 +841,9 @@ Convenciones de toda la API:
 - Si el negocio no tiene coordenadas, no llama.
 
 ### 11.4 Catálogo para el operador
-- **`GET /api/op/products`** → productos activos ordenados por `sort_order`: `{id, name, price_cop, photo_url}`.
+- **`GET /api/admin/products`** → productos activos ordenados por `sort_order`: `{id, name, price_cop, photo_url}`.
 
-### 11.5 Crear venta — `POST /api/op/sales`
+### 11.5 Crear venta — `POST /api/admin/sales`
 
 Cabecera obligatoria `Idempotency-Key: <uuid>`. Si falta o no es UUID → `validation_error`.
 
@@ -886,7 +886,7 @@ Respuesta 201:
   "total_cop": 42000,
   "payment_method": "cash",
   "items": [{ "label": "Berry Bliss", "qty": 2, "unit_price_cop": 14000, "discount_cop": 0 }],
-  "claim_url": "https://<PUBLIC_APP_URL>/c/claim/<token>",
+  "claim_url": "https://<PUBLIC_APP_URL>/client/claim/<token>",
   "claim_expires_at": "…",
   "customer": null
 }
@@ -894,9 +894,9 @@ Respuesta 201:
 
 ### 11.6 Otros endpoints de venta
 
-**`GET /api/op/sales/{id}`** → detalle completo de la venta.
+**`GET /api/admin/sales/{id}`** → detalle completo de la venta.
 
-**`GET /api/op/sales/{id}/status`** — lo consulta el frontend cada 2 segundos mientras muestra el QR:
+**`GET /api/admin/sales/{id}/status`** — lo consulta el frontend cada 2 segundos mientras muestra el QR:
 ```json
 { "status": "claimed",
   "customer": { "id": "…", "alias": "Ana", "phone_last4": "4567",
@@ -904,12 +904,12 @@ Respuesta 201:
 ```
 `customer` es `null` si la venta sigue `paid`.
 
-**`POST /api/op/sales/{id}/link`** `{ "customer_id" }` (vínculo manual, F4):
+**`POST /api/admin/sales/{id}/link`** `{ "customer_id" }` (vínculo manual, F4):
 1. Bloquear venta: del negocio, `status='paid'`, jornada de la venta **abierta**. Si no → `sale_not_linkable` 409.
 2. Llamar `link_sale_to_customer(method='manual')`.
 3. Evento adicional `sale_linked_manual`.
 
-**`POST /api/op/sales/{id}/unlink`** ("No es Ana"):
+**`POST /api/admin/sales/{id}/unlink`** ("No es Ana"):
 1. Bloquear venta: `status='claimed'`, jornada abierta. Si no → `sale_not_linkable` 409.
 2. Si la venta tiene un premio redimido → `sale_has_prize` 409 (hay que anularla, no desvincularla).
 3. Ejecutar la **cascada de giros** de 11.8 pasos 3–4 (sin tocar el estado de la venta todavía).
@@ -917,14 +917,14 @@ Respuesta 201:
 5. `reconcile_spins(cliente anterior)`.
 6. Evento `sale_unlinked`.
 
-**`POST /api/op/sales/{id}/void`** `{ "reason": "texto 3-200 caracteres" }` → ver 11.8.
+**`POST /api/admin/sales/{id}/void`** `{ "reason": "texto 3-200 caracteres" }` → ver 11.8.
 
-**`GET /api/op/customers/search?last4=4567`**
+**`GET /api/admin/customers/search?last4=4567`**
 - `last4` exactamente 4 dígitos.
 - Clientes del negocio con `right(phone,4) = last4`, máximo 10.
 - Respuesta: `[{ id, alias, phone_last4, purchases, active_prizes_count }]`.
 
-**`GET /api/op/customers/{id}`** → ficha: `alias`, `phone_last4`, `purchases`, `milestone_every`, `active_prizes` (con vencimiento), últimas 20 ventas.
+**`GET /api/admin/customers/{id}`** → ficha: `alias`, `phone_last4`, `purchases`, `milestone_every`, `active_prizes` (con vencimiento), últimas 20 ventas.
 
 ### 11.7 Vincular compra a cliente — `services/claims.py` (función central)
 
@@ -980,7 +980,7 @@ Hace que los giros vigentes coincidan con las compras (R9, R10). Se llama tras v
 
 ### 11.8 Anular venta — `services/voids.py`
 
-`POST /api/op/sales/{id}/void`, en una transacción:
+`POST /api/admin/sales/{id}/void`, en una transacción:
 1. Bloquear la venta del negocio. Si ya es `void` → `sale_already_void` 409.
 2. Permisos: `operator` solo puede anular ventas de la jornada abierta; `owner` cualquiera.
 3. **Cascada de giros** — para cada giro con `unlocked_by_sale_id = venta`:
@@ -1007,7 +1007,7 @@ Hace que los giros vigentes coincidan con las compras (R9, R10). Se llama tras v
 4. Tras insertar la venta: premio `status='redeemed'`, `redeemed_at`, `redeemed_sale_id`, `redeemed_by`.
 5. Si falla el índice `prize_one_per_sale` → `prize_already_in_sale` 409.
 
-#### 11.9.2 Redimir sobre una venta ya cobrada — `POST /api/op/sales/{id}/redeem-prize`
+#### 11.9.2 Redimir sobre una venta ya cobrada — `POST /api/admin/sales/{id}/redeem-prize`
 Cuerpo: `{ "prize_award_id", "product_id" }` (`product_id` obligatorio para `free_item`, ignorado para `extra_item`).
 1. Bloquear venta: `status='claimed'`, jornada abierta. Si no → `sale_not_linkable` 409.
 2. Bloquear premio y validar como en 11.9.1 paso 1, contra el **cliente de la venta**.
@@ -1019,58 +1019,58 @@ Cuerpo: `{ "prize_award_id", "product_id" }` (`product_id` obligatorio para `fre
 8. Premio a `redeemed`. Evento `prize_redeemed`.
 
 #### 11.9.3 Consultas
-- **`GET /api/op/prizes/pending?filter=expiring|free|all`** → desde `v_pending_prizes` del negocio. `expiring` = vencen en ≤ 7 días. `free` = tipos `free_item`. Orden por `expires_at`.
-- **`GET /api/op/prizes/catalog`** (`require_owner`) → catálogo completo **con** pesos. Solo para el dueño.
+- **`GET /api/admin/prizes/pending?filter=expiring|free|all`** → desde `v_pending_prizes` del negocio. `expiring` = vencen en ≤ 7 días. `free` = tipos `free_item`. Orden por `expires_at`.
+- **`GET /api/admin/prizes/catalog`** (`require_owner`) → catálogo completo **con** pesos. Solo para el dueño.
 
 ### 11.10 Identidad del cliente
 
-**`GET /api/c/business`** → `{ name, slug, branding, privacy_policy_version }` del negocio por defecto (`DEFAULT_BUSINESS_SLUG`) o del cliente con sesión. Sin autenticación.
+**`GET /api/client/business`** → `{ name, slug, branding, privacy_policy_version }` del negocio por defecto (`DEFAULT_BUSINESS_SLUG`) o del cliente con sesión. Sin autenticación.
 
-**`GET /api/c/claims/{token}`** — vista previa para la pantalla de entrada, sin datos personales:
+**`GET /api/client/claims/{token}`** — vista previa para la pantalla de entrada, sin datos personales:
 ```json
 { "state": "claimable", "sale": { "items_count": 2, "total_cop": 28000, "paid_at": "…" }, "business": { "name": "…", "branding": {} } }
 ```
 `state`: `claimable` | `already_claimed` | `expired` | `voided` | `not_found`. Siempre 200 (salvo límite de intentos).
 
-**`POST /api/c/register`** `{ "phone", "alias", "consent": true, "claim_token" }`
+**`POST /api/client/register`** `{ "phone", "alias", "consent": true, "claim_token" }`
 1. `consent` debe ser `true` → si no, `consent_required` 422.
 2. `alias`: recortar espacios, 2 a 30 caracteres.
 3. `phone = normalize_phone(phone)`.
 4. Bloquear la venta por `claim_token` → si no existe, `claim_not_found` 404. Validar como en 11.7 paso 1 (método `qr`) **antes** de crear nada.
 5. Si ya existe cliente con ese teléfono en el negocio → `customer_exists` 409 con `extra: { "alias": "Ana", "phone_last4": "4567" }`. **Solo aquí** se revela el alias, y solo porque hay un token válido (R5).
 6. Crear cliente con `consent_at=now()`, `consent_version=PRIVACY_POLICY_VERSION`. Evento `customer_created`.
-7. Crear `customer_session` (365 días). Cookie `c_session`.
+7. Crear `customer_session` (365 días). Cookie `client_session`.
 8. `link_sale_to_customer(method='qr', actor='customer')`.
 9. Responder `{ card, counted, new_spins }`.
 
-**`POST /api/c/identify/confirm`** `{ "phone", "claim_token" }`
+**`POST /api/client/identify/confirm`** `{ "phone", "claim_token" }`
 1. Normalizar teléfono. Bloquear y validar la venta como en register paso 4.
 2. Buscar cliente por teléfono en el negocio de la venta → si no existe, `customer_not_found` 404.
 3. Crear sesión nueva y cookie. Evento `identity_confirmed`.
 4. `link_sale_to_customer(method='qr')`.
 5. Responder igual que register.
 
-**Dependencia `get_current_customer`**: como la del operador, con `c_session`. Si falta o es inválida → `not_authenticated` 401.
+**Dependencia `get_current_customer`**: como la del operador, con `client_session`. Si falta o es inválida → `not_authenticated` 401.
 
-**`GET /api/c/me`** → `build_card(customer)`.
+**`GET /api/client/me`** → `build_card(customer)`.
 
-**`POST /api/c/claim`** `{ "claim_token" }` (cliente con sesión, F2)
+**`POST /api/client/claim`** `{ "claim_token" }` (cliente con sesión, F2)
 1. Bloquear la venta por token. Si no existe → `claim_not_found` 404.
 2. `link_sale_to_customer(method='qr')`.
 3. Responder `{ card, counted, new_spins }`.
 
-**`GET /api/c/history`** → últimas 30 ventas del cliente (no anuladas): fecha, líneas, total, premio usado.
+**`GET /api/client/history`** → últimas 30 ventas del cliente (no anuladas): fecha, líneas, total, premio usado.
 
-**`POST /api/c/logout`** → revoca la sesión y borra la cookie.
+**`POST /api/client/logout`** → revoca la sesión y borra la cookie.
 
 ### 11.11 Ruleta
 
-**`GET /api/c/wheel`** → casillas activas **sin pesos**, en `sort_order`:
+**`GET /api/client/wheel`** → casillas activas **sin pesos**, en `sort_order`:
 ```json
 { "segments": [ { "id": "…", "short_label": "10% dto", "color": "primary" } ] }
 ```
 
-**`POST /api/c/spins/{id}/spin`** (con sesión de cliente)
+**`POST /api/client/spins/{id}/spin`** (con sesión de cliente)
 1. Bloquear el giro. Debe ser del cliente de la sesión → si no, `spin_not_found` 404.
 2. Si `status='consumed'` → devolver el premio existente (idempotente, R12).
 3. Si `status='void'` → `spin_not_available` 409.
@@ -1085,17 +1085,17 @@ Cuerpo: `{ "prize_award_id", "product_id" }` (`product_id` obligatorio para `fre
   "prize_award": { "id": "…", "name": "…", "short_label": "…", "type": "…", "expires_at": "…" },
   "card": { } }
 ```
-`segment_index` = posición del premio en la lista de `GET /api/c/wheel`.
+`segment_index` = posición del premio en la lista de `GET /api/client/wheel`.
 
-**`GET /api/c/prizes/{id}`** → detalle del premio del cliente, incluido `status` (la pantalla "Quiero usar mi premio" lo consulta para actualizarse cuando el operador redime). Si está `active` y `expires_at <= now()`, devolver `status: "expired"`.
+**`GET /api/client/prizes/{id}`** → detalle del premio del cliente, incluido `status` (la pantalla "Quiero usar mi premio" lo consulta para actualizarse cuando el operador redime). Si está `active` y `expires_at <= now()`, devolver `status: "expired"`.
 
 ### 11.12 Estadísticas (solo operador)
 
 | Endpoint | Fuente | Respuesta |
 |---|---|---|
-| `GET /api/op/stats/workdays/{id}` | `v_workday_summary`, `v_hourly_sales`, `v_product_sales` | Resumen + `drinks_per_sale` + `claimed_pct` + ventas por hora + top 3 productos + mejor hora |
-| `GET /api/op/stats/history?from=YYYY-MM-DD&to=YYYY-MM-DD` | Mismas vistas | Lista de jornadas + ranking de productos del rango + promedio por hora |
-| `GET /api/op/export/sales.csv?from&to` (`require_owner`) | `sale` + `sale_item` | CSV, una fila por línea de venta |
+| `GET /api/admin/stats/workdays/{id}` | `v_workday_summary`, `v_hourly_sales`, `v_product_sales` | Resumen + `drinks_per_sale` + `claimed_pct` + ventas por hora + top 3 productos + mejor hora |
+| `GET /api/admin/stats/history?from=YYYY-MM-DD&to=YYYY-MM-DD` | Mismas vistas | Lista de jornadas + ranking de productos del rango + promedio por hora |
+| `GET /api/admin/export/sales.csv?from&to` (`require_owner`) | `sale` + `sale_item` | CSV, una fila por línea de venta |
 
 - `drinks_per_sale = drinks / sales` redondeado a 2 decimales.
 - `claimed_pct = claimed_sales / sales` (0 si no hay ventas).
@@ -1103,7 +1103,7 @@ Cuerpo: `{ "prize_award_id", "product_id" }` (`product_id` obligatorio para `fre
 
 ### 11.13 Eventos desde el frontend
 
-**`POST /api/c/events`** y **`POST /api/op/events`**:
+**`POST /api/client/events`** y **`POST /api/admin/events`**:
 ```json
 { "type": "page_loaded", "sale_id": null, "payload": { "load_ms": 1400 }, "client_ts": "…" }
 ```
@@ -1124,7 +1124,7 @@ Solo tipos permitidos:
 - [ ] Contraseñas con argon2; nunca registradas en logs.
 - [ ] Tokens de sesión: solo el hash en la base.
 - [ ] Cookies `HttpOnly`, `Secure` en producción, `SameSite=Lax`, sin `domain`.
-- [ ] Todos los `/api/op/*` exigen `get_current_operator`, salvo login.
+- [ ] Todos los `/api/admin/*` exigen `get_current_operator`, salvo login.
 - [ ] Todo acceso filtra por `business_id` del usuario autenticado (R21).
 - [ ] Middleware de origen para métodos que escriben.
 - [ ] Límites de intentos configurados.
@@ -1207,8 +1207,8 @@ Y: (R8 ahora en `stamps.py`, se prueba en `tests/api`) dos ventas `claimed` del 
 | Desvincular venta con premio | `sale_has_prize` |
 | Registrar sin token o con token vencido | Error, no se crea cliente |
 | Registrar sin consentimiento | `consent_required` |
-| `/api/op/*` sin cookie | 401 |
-| Cookie de cliente en `/api/op/*` | 401 |
+| `/api/admin/*` sin cookie | 401 |
+| Cookie de cliente en `/api/admin/*` | 401 |
 | POST con `Origin` ajeno | 403 |
 | Login fallido 6 veces | 429 |
 | Crear venta con precio en el cuerpo | El precio se ignora; se usa el de la base |
@@ -1225,40 +1225,40 @@ Y: (R8 ahora en `stamps.py`, se prueba en `tests/api`) dos ventas `claimed` del 
 | Método | Ruta | Auth | Sección |
 |---|---|---|---|
 | GET | `/api/health` | — | 10.11 |
-| POST | `/api/op/auth/login` | — | 11.1 |
-| POST | `/api/op/auth/logout` | Operador | 11.1 |
-| GET | `/api/op/auth/me` | Operador | 11.1 |
-| GET | `/api/op/workdays/current` | Operador | 11.2 |
-| POST | `/api/op/workdays/open` | Operador | 11.2 |
-| POST | `/api/op/workdays/current/close` | Operador | 11.2 |
-| GET | `/api/op/products` | Operador | 11.4 |
-| POST | `/api/op/sales` | Operador | 11.5 |
-| GET | `/api/op/sales/{id}` | Operador | 11.6 |
-| GET | `/api/op/sales/{id}/status` | Operador | 11.6 |
-| POST | `/api/op/sales/{id}/link` | Operador | 11.6 |
-| POST | `/api/op/sales/{id}/unlink` | Operador | 11.6 |
-| POST | `/api/op/sales/{id}/void` | Operador | 11.8 |
-| POST | `/api/op/sales/{id}/redeem-prize` | Operador | 11.9.2 |
-| GET | `/api/op/customers/search` | Operador | 11.6 |
-| GET | `/api/op/customers/{id}` | Operador | 11.6 |
-| GET | `/api/op/prizes/pending` | Operador | 11.9.3 |
-| GET | `/api/op/prizes/catalog` | Dueño | 11.9.3 |
-| GET | `/api/op/stats/workdays/{id}` | Operador | 11.12 |
-| GET | `/api/op/stats/history` | Operador | 11.12 |
-| GET | `/api/op/export/sales.csv` | Dueño | 11.12 |
-| POST | `/api/op/events` | Operador | 11.13 |
-| GET | `/api/c/business` | — | 11.10 |
-| GET | `/api/c/claims/{token}` | — | 11.10 |
-| POST | `/api/c/register` | — (token) | 11.10 |
-| POST | `/api/c/identify/confirm` | — (token) | 11.10 |
-| GET | `/api/c/me` | Cliente | 11.10 |
-| POST | `/api/c/claim` | Cliente | 11.10 |
-| GET | `/api/c/history` | Cliente | 11.10 |
-| POST | `/api/c/logout` | Cliente | 11.10 |
-| GET | `/api/c/wheel` | — | 11.11 |
-| POST | `/api/c/spins/{id}/spin` | Cliente | 11.11 |
-| GET | `/api/c/prizes/{id}` | Cliente | 11.11 |
-| POST | `/api/c/events` | — / Cliente | 11.13 |
+| POST | `/api/admin/auth/login` | — | 11.1 |
+| POST | `/api/admin/auth/logout` | Operador | 11.1 |
+| GET | `/api/admin/auth/me` | Operador | 11.1 |
+| GET | `/api/admin/workdays/current` | Operador | 11.2 |
+| POST | `/api/admin/workdays/open` | Operador | 11.2 |
+| POST | `/api/admin/workdays/current/close` | Operador | 11.2 |
+| GET | `/api/admin/products` | Operador | 11.4 |
+| POST | `/api/admin/sales` | Operador | 11.5 |
+| GET | `/api/admin/sales/{id}` | Operador | 11.6 |
+| GET | `/api/admin/sales/{id}/status` | Operador | 11.6 |
+| POST | `/api/admin/sales/{id}/link` | Operador | 11.6 |
+| POST | `/api/admin/sales/{id}/unlink` | Operador | 11.6 |
+| POST | `/api/admin/sales/{id}/void` | Operador | 11.8 |
+| POST | `/api/admin/sales/{id}/redeem-prize` | Operador | 11.9.2 |
+| GET | `/api/admin/customers/search` | Operador | 11.6 |
+| GET | `/api/admin/customers/{id}` | Operador | 11.6 |
+| GET | `/api/admin/prizes/pending` | Operador | 11.9.3 |
+| GET | `/api/admin/prizes/catalog` | Dueño | 11.9.3 |
+| GET | `/api/admin/stats/workdays/{id}` | Operador | 11.12 |
+| GET | `/api/admin/stats/history` | Operador | 11.12 |
+| GET | `/api/admin/export/sales.csv` | Dueño | 11.12 |
+| POST | `/api/admin/events` | Operador | 11.13 |
+| GET | `/api/client/business` | — | 11.10 |
+| GET | `/api/client/claims/{token}` | — | 11.10 |
+| POST | `/api/client/register` | — (token) | 11.10 |
+| POST | `/api/client/identify/confirm` | — (token) | 11.10 |
+| GET | `/api/client/me` | Cliente | 11.10 |
+| POST | `/api/client/claim` | Cliente | 11.10 |
+| GET | `/api/client/history` | Cliente | 11.10 |
+| POST | `/api/client/logout` | Cliente | 11.10 |
+| GET | `/api/client/wheel` | — | 11.11 |
+| POST | `/api/client/spins/{id}/spin` | Cliente | 11.11 |
+| GET | `/api/client/prizes/{id}` | Cliente | 11.11 |
+| POST | `/api/client/events` | — / Cliente | 11.13 |
 
 ### 14.2 Códigos de error
 

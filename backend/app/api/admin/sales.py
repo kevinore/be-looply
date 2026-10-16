@@ -19,7 +19,7 @@ from app.schemas.sale import (
 from app.services import prizes, sales, voids
 from app.services.claims import ClaimResult
 
-router = APIRouter(prefix="/api/op/sales", tags=["op: sales"])
+router = APIRouter(prefix="/api/admin/sales", tags=["admin: sales"])
 
 
 def claim_result_out(result: ClaimResult) -> dict:

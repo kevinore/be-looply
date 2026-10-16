@@ -24,7 +24,7 @@ async def test_f1_first_purchase(
 ):
     sale, token = await new_sale(owner, seeded, owner_conn, qty=2)
 
-    preview = (await customer_client.get(f"/api/c/claims/{token}")).json()
+    preview = (await customer_client.get(f"/api/client/claims/{token}")).json()
     assert preview["state"] == "claimable"
     assert preview["sale"]["items_count"] == 2
     assert preview["sale"]["total_cop"] == 28000
@@ -40,10 +40,10 @@ async def test_f1_first_purchase(
     assert card["purchases"] == 1
     assert card["progress"] == 1
     assert card["purchases_to_next_spin"] == 4
-    assert "c_session" in customer_client.cookies
+    assert "client_session" in customer_client.cookies
 
     spin_id = body["new_spins"][0]["id"]
-    r = await customer_client.post(f"/api/c/spins/{spin_id}/spin")
+    r = await customer_client.post(f"/api/client/spins/{spin_id}/spin")
     assert r.status_code == 200, r.text
     result = r.json()
     assert result["prize_award"]["name"] == "10% de descuento"
@@ -56,14 +56,14 @@ async def test_f1_first_purchase(
     assert [p["name"] for p in result["card"]["active_prizes"]] == ["10% de descuento"]
 
     prize = (
-        await customer_client.get(f"/api/c/prizes/{result['prize_award']['id']}")
+        await customer_client.get(f"/api/client/prizes/{result['prize_award']['id']}")
     ).json()
     assert prize["status"] == "active"
 
-    preview = (await customer_client.get(f"/api/c/claims/{token}")).json()
+    preview = (await customer_client.get(f"/api/client/claims/{token}")).json()
     assert preview["state"] == "already_claimed"
 
-    status = (await owner.get(f"/api/op/sales/{sale['id']}/status")).json()
+    status = (await owner.get(f"/api/admin/sales/{sale['id']}/status")).json()
     assert status["customer"]["alias"] == "Ana"
     assert status["customer"]["active_prizes"][0]["name"] == "10% de descuento"
 
@@ -83,13 +83,14 @@ async def test_f2_open_session_milestone(
     # Log in the customer through identity confirmation on a first sale.
     _, first = await new_sale(owner, seeded, owner_conn)
     r = await customer_client.post(
-        "/api/c/identify/confirm", json={"phone": "3101234567", "claim_token": first}
+        "/api/client/identify/confirm",
+        json={"phone": "3101234567", "claim_token": first},
     )
     assert r.json()["card"]["purchases"] == 5
     assert [s["milestone_n"] for s in r.json()["new_spins"]] == [5]
 
     # Same workday again: one more stamp (R8, per sale), next milestone is 10.
-    r = await customer_client.post("/api/c/claim", json={"claim_token": token})
+    r = await customer_client.post("/api/client/claim", json={"claim_token": token})
     assert r.status_code == 200
     assert r.json()["counted"] is True
     assert r.json()["new_spins"] == []
@@ -104,7 +105,7 @@ async def test_f2_same_day_second_sale(
     _, first = await new_sale(owner, seeded, owner_conn)
     _, second = await new_sale(owner, seeded, owner_conn)
     await register(customer_client, first)
-    r = await customer_client.post("/api/c/claim", json={"claim_token": second})
+    r = await customer_client.post("/api/client/claim", json={"claim_token": second})
     assert r.json()["counted"] is True
     assert r.json()["new_spins"] == []  # the welcome spin is only once
     assert r.json()["card"]["purchases"] == 2
@@ -132,7 +133,7 @@ async def test_milestone_reached_on_one_day(
     await register(customer_client, first)
     for _ in range(4):
         _, token = await new_sale(owner, seeded, owner_conn)
-        r = await customer_client.post("/api/c/claim", json={"claim_token": token})
+        r = await customer_client.post("/api/client/claim", json={"claim_token": token})
     assert r.json()["card"]["purchases"] == 5
     assert [s["milestone_n"] for s in r.json()["new_spins"]] == [5]
 
@@ -143,12 +144,12 @@ async def test_void_second_same_day_sale_removes_its_stamp(
     _, first = await new_sale(owner, seeded, owner_conn)
     second, token = await new_sale(owner, seeded, owner_conn)
     await register(customer_client, first)
-    await customer_client.post("/api/c/claim", json={"claim_token": token})
+    await customer_client.post("/api/client/claim", json={"claim_token": token})
     r = await owner.post(
-        f"/api/op/sales/{second['id']}/void", json={"reason": "duplicada"}
+        f"/api/admin/sales/{second['id']}/void", json={"reason": "duplicada"}
     )
     assert r.status_code == 200, r.text
-    assert (await customer_client.get("/api/c/me")).json()["purchases"] == 1
+    assert (await customer_client.get("/api/client/me")).json()["purchases"] == 1
 
 
 async def test_per_workday_rule_still_works(
@@ -161,7 +162,7 @@ async def test_per_workday_rule_still_works(
     _, first = await new_sale(owner, seeded, owner_conn)
     _, second = await new_sale(owner, seeded, owner_conn)
     await register(customer_client, first)
-    r = await customer_client.post("/api/c/claim", json={"claim_token": second})
+    r = await customer_client.post("/api/client/claim", json={"claim_token": second})
     assert r.json()["counted"] is False
     assert r.json()["card"]["purchases"] == 1
 
@@ -179,14 +180,14 @@ async def test_f3_no_session(owner, open_workday, seeded, owner_conn, customer_c
     assert err["extra"] == {"alias": "Ana", "phone_last4": "4567"}
 
     r = await customer_client.post(
-        "/api/c/identify/confirm",
+        "/api/client/identify/confirm",
         json={"phone": "+57 310-123-4567", "claim_token": token},
     )
     assert r.status_code == 200, r.text
     assert r.json()["counted"] is True
     assert r.json()["new_spins"] == []  # already had the welcome spin
     assert r.json()["card"]["purchases"] == 2
-    assert (await customer_client.get("/api/c/me")).status_code == 200
+    assert (await customer_client.get("/api/client/me")).status_code == 200
     assert owner_conn.execute("SELECT count(*) FROM customer").fetchone()[0] == 1
 
 
@@ -195,7 +196,8 @@ async def test_identify_unknown_phone(
 ):
     _, token = await new_sale(owner, seeded, owner_conn)
     r = await customer_client.post(
-        "/api/c/identify/confirm", json={"phone": "3109999999", "claim_token": token}
+        "/api/client/identify/confirm",
+        json={"phone": "3109999999", "claim_token": token},
     )
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "customer_not_found"
@@ -205,7 +207,8 @@ async def test_register_without_or_with_expired_token(
     owner, open_workday, seeded, owner_conn, customer_client
 ):
     r = await customer_client.post(
-        "/api/c/register", json={"phone": "3101234567", "alias": "Ana", "consent": True}
+        "/api/client/register",
+        json={"phone": "3101234567", "alias": "Ana", "consent": True},
     )
     assert r.json()["error"]["code"] == "validation_error"
     r = await register(customer_client, "no-such-token")
@@ -225,7 +228,7 @@ async def test_register_without_consent(
 ):
     _, token = await new_sale(owner, seeded, owner_conn)
     r = await customer_client.post(
-        "/api/c/register",
+        "/api/client/register",
         json={
             "phone": "3101234567",
             "alias": "Ana",
@@ -255,21 +258,23 @@ async def test_claim_already_claimed_and_voided(
 ):
     _, token = await new_sale(owner, seeded, owner_conn)
     await register(customer_client, token)
-    r = await customer_client.post("/api/c/claim", json={"claim_token": token})
+    r = await customer_client.post("/api/client/claim", json={"claim_token": token})
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "claim_already_claimed"
 
     other, other_token = await new_sale(owner, seeded, owner_conn)
-    await owner.post(f"/api/op/sales/{other['id']}/void", json={"reason": "error"})
-    r = await customer_client.post("/api/c/claim", json={"claim_token": other_token})
+    await owner.post(f"/api/admin/sales/{other['id']}/void", json={"reason": "error"})
+    r = await customer_client.post(
+        "/api/client/claim", json={"claim_token": other_token}
+    )
     assert r.status_code == 410
     assert r.json()["error"]["code"] == "claim_voided"
-    preview = (await customer_client.get(f"/api/c/claims/{other_token}")).json()
+    preview = (await customer_client.get(f"/api/client/claims/{other_token}")).json()
     assert preview["state"] == "voided"
 
 
 async def test_preview_not_found(customer_client, seeded):
-    r = await customer_client.get("/api/c/claims/nope")
+    r = await customer_client.get("/api/client/claims/nope")
     assert r.status_code == 200
     assert r.json() == {"state": "not_found", "sale": None, "business": None}
 
@@ -283,8 +288,8 @@ async def test_concurrent_claims_same_token(owner, open_workday, seeded, owner_c
         await register(ana, t1, phone="3101234567", alias="Ana")
         await register(bea, t2, phone="3107654321", alias="Bea")
         results = await asyncio.gather(
-            ana.post("/api/c/claim", json={"claim_token": shared}),
-            bea.post("/api/c/claim", json={"claim_token": shared}),
+            ana.post("/api/client/claim", json={"claim_token": shared}),
+            bea.post("/api/client/claim", json={"claim_token": shared}),
         )
     codes = sorted(r.status_code for r in results)
     assert codes == [200, 409]
@@ -297,9 +302,9 @@ async def test_spin_twice_same_prize(
 ):
     _, token = await new_sale(owner, seeded, owner_conn)
     spin_id = (await register(customer_client, token)).json()["new_spins"][0]["id"]
-    first = (await customer_client.post(f"/api/c/spins/{spin_id}/spin")).json()
+    first = (await customer_client.post(f"/api/client/spins/{spin_id}/spin")).json()
     rng("Bebida gratis")
-    second = (await customer_client.post(f"/api/c/spins/{spin_id}/spin")).json()
+    second = (await customer_client.post(f"/api/client/spins/{spin_id}/spin")).json()
     assert first["prize_award"] == second["prize_award"]
     assert owner_conn.execute("SELECT count(*) FROM prize_award").fetchone()[0] == 1
 
@@ -310,10 +315,10 @@ async def test_spin_of_another_customer(owner, open_workday, seeded, owner_conn,
     async with make_client() as ana, make_client() as bea:
         spin_id = (await register(ana, t1)).json()["new_spins"][0]["id"]
         await register(bea, t2, phone="3107654321", alias="Bea")
-        r = await bea.post(f"/api/c/spins/{spin_id}/spin")
+        r = await bea.post(f"/api/client/spins/{spin_id}/spin")
         assert r.status_code == 404
         assert r.json()["error"]["code"] == "spin_not_found"
-        r = await bea.post(f"/api/c/spins/{uuid4()}/spin")
+        r = await bea.post(f"/api/client/spins/{uuid4()}/spin")
         assert r.json()["error"]["code"] == "spin_not_found"
 
 
@@ -322,11 +327,11 @@ async def test_prize_of_another_customer(owner, open_workday, seeded, owner_conn
     _, t2 = await new_sale(owner, seeded, owner_conn)
     async with make_client() as ana, make_client() as bea:
         spin_id = (await register(ana, t1)).json()["new_spins"][0]["id"]
-        award_id = (await ana.post(f"/api/c/spins/{spin_id}/spin")).json()[
+        award_id = (await ana.post(f"/api/client/spins/{spin_id}/spin")).json()[
             "prize_award"
         ]["id"]
         await register(bea, t2, phone="3107654321", alias="Bea")
-        r = await bea.get(f"/api/c/prizes/{award_id}")
+        r = await bea.get(f"/api/client/prizes/{award_id}")
         assert r.status_code == 404
         assert r.json()["error"]["code"] == "prize_not_found"
 
@@ -336,8 +341,8 @@ async def test_void_spin_not_available(
 ):
     sale, token = await new_sale(owner, seeded, owner_conn)
     spin_id = (await register(customer_client, token)).json()["new_spins"][0]["id"]
-    await owner.post(f"/api/op/sales/{sale['id']}/void", json={"reason": "error"})
-    r = await customer_client.post(f"/api/c/spins/{spin_id}/spin")
+    await owner.post(f"/api/admin/sales/{sale['id']}/void", json={"reason": "error"})
+    r = await customer_client.post(f"/api/client/spins/{spin_id}/spin")
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "spin_not_available"
 
@@ -347,16 +352,16 @@ async def test_expired_prize_shows_expired(
 ):
     _, token = await new_sale(owner, seeded, owner_conn)
     spin_id = (await register(customer_client, token)).json()["new_spins"][0]["id"]
-    award_id = (await customer_client.post(f"/api/c/spins/{spin_id}/spin")).json()[
+    award_id = (await customer_client.post(f"/api/client/spins/{spin_id}/spin")).json()[
         "prize_award"
     ]["id"]
     owner_conn.execute(
         "UPDATE prize_award SET expires_at = now() - interval '1 second'"
     )
     owner_conn.commit()
-    r = await customer_client.get(f"/api/c/prizes/{award_id}")
+    r = await customer_client.get(f"/api/client/prizes/{award_id}")
     assert r.json()["status"] == "expired"
-    assert (await customer_client.get("/api/c/me")).json()["active_prizes"] == []
+    assert (await customer_client.get("/api/client/me")).json()["active_prizes"] == []
 
 
 async def test_wheel_without_weights(client, seeded, owner_conn):
@@ -364,7 +369,7 @@ async def test_wheel_without_weights(client, seeded, owner_conn):
         "UPDATE prize_catalog SET active = false WHERE name = 'Bebida gratis'"
     )
     owner_conn.commit()
-    r = await client.get("/api/c/wheel")
+    r = await client.get("/api/client/wheel")
     segments = r.json()["segments"]
     assert [s["short_label"] for s in segments] == [
         "10% dto",
@@ -377,7 +382,7 @@ async def test_wheel_without_weights(client, seeded, owner_conn):
 
 
 async def test_public_business(client, seeded):
-    r = await client.get("/api/c/business")
+    r = await client.get("/api/client/business")
     assert r.json() == {
         "name": "Test Business",
         "slug": "test-biz",
@@ -391,14 +396,14 @@ async def test_history_and_logout(
 ):
     _, token = await new_sale(owner, seeded, owner_conn, qty=2)
     await register(customer_client, token)
-    history = (await customer_client.get("/api/c/history")).json()
+    history = (await customer_client.get("/api/client/history")).json()
     assert len(history) == 1
     assert history[0]["total_cop"] == 28000
     assert history[0]["items"][0]["label"] == "Berry Bliss"
     assert history[0]["prize_used"] is None
 
-    assert (await customer_client.post("/api/c/logout")).status_code == 204
-    r = await customer_client.get("/api/c/me")
+    assert (await customer_client.post("/api/client/logout")).status_code == 204
+    r = await customer_client.get("/api/client/me")
     assert r.status_code == 401
     assert r.json()["error"]["code"] == "not_authenticated"
 
@@ -408,7 +413,7 @@ async def test_customer_cookie_on_operator_api(
 ):
     _, token = await new_sale(owner, seeded, owner_conn)
     await register(customer_client, token)
-    r = await customer_client.get("/api/op/auth/me")
+    r = await customer_client.get("/api/admin/auth/me")
     assert r.status_code == 401
 
 

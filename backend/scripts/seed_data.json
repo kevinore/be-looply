@@ -42,7 +42,8 @@
           "sort_order": 1
         },
         {
-          "name": "Avena",
+          "name": "Leche de Avena",
+          "renamed_from": "Avena",
           "sort_order": 2
         }
       ]
@@ -224,7 +225,7 @@
       "price_cop": 5000,
       "category": "Helados",
       "earns_stamp": false,
-      "prize_eligible": false,
+      "prize_eligible": true,
       "cost_cop": null,
       "photo_url": "/products/paleta.webp",
       "option_groups": [
@@ -237,7 +238,7 @@
       "price_cop": 5000,
       "category": "Helados",
       "earns_stamp": false,
-      "prize_eligible": false,
+      "prize_eligible": true,
       "cost_cop": null,
       "photo_url": "/products/helado-de-leche.webp",
       "option_groups": [
@@ -250,7 +251,7 @@
       "price_cop": 7000,
       "category": "Helados",
       "earns_stamp": false,
-      "prize_eligible": false,
+      "prize_eligible": true,
       "cost_cop": null,
       "photo_url": "/products/helado-especial.webp",
       "option_groups": [
@@ -261,56 +262,61 @@
   "prize_catalog": [
     {
       "sort_order": 1,
-      "name": "10% de descuento",
-      "short_label": "10% dto",
-      "type": "percent_off",
-      "value": 10,
-      "max_value_cop": 16000,
-      "weight": 40,
+      "name": "Helado gratis (paleta o de leche)",
+      "short_label": "Helado gratis",
+      "type": "free_item",
+      "value": 0,
+      "max_value_cop": 5000,
+      "category": "Helados",
+      "weight": 4000,
       "color": "primary",
       "expires_days": 90
     },
     {
       "sort_order": 2,
-      "name": "Cold foam o topping extra",
-      "short_label": "Topping",
-      "type": "extra_item",
-      "value": 0,
-      "max_value_cop": null,
-      "weight": 25,
+      "name": "20% de descuento en tu bebida",
+      "short_label": "20% dto",
+      "type": "percent_off",
+      "value": 20,
+      "max_value_cop": 3000,
+      "category": "Bebidas",
+      "weight": 3500,
       "color": "secondary",
       "expires_days": 90
     },
     {
       "sort_order": 3,
-      "name": "20% de descuento",
-      "short_label": "20% dto",
-      "type": "percent_off",
-      "value": 20,
-      "max_value_cop": 16000,
-      "weight": 20,
+      "name": "Helado especial gratis",
+      "short_label": "Helado esp.",
+      "type": "free_item",
+      "value": 0,
+      "max_value_cop": null,
+      "category": "Helados",
+      "weight": 1000,
       "color": "primary",
       "expires_days": 90
     },
     {
       "sort_order": 4,
-      "name": "50% de descuento",
-      "short_label": "50% dto",
+      "name": "30% de descuento en tu bebida",
+      "short_label": "30% dto",
       "type": "percent_off",
-      "value": 50,
-      "max_value_cop": 16000,
-      "weight": 10,
-      "color": "ink",
+      "value": 30,
+      "max_value_cop": 4500,
+      "category": "Bebidas",
+      "weight": 1000,
+      "color": "secondary",
       "expires_days": 90
     },
     {
       "sort_order": 5,
       "name": "Bebida gratis",
-      "short_label": "Gratis",
+      "short_label": "Bebida gratis",
       "type": "free_item",
       "value": 0,
-      "max_value_cop": 16000,
-      "weight": 5,
+      "max_value_cop": 15000,
+      "category": "Bebidas",
+      "weight": 500,
       "color": "ink",
       "expires_days": 90
     }

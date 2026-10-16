@@ -25,9 +25,9 @@ async def test_f5_saved_percent_prize(
     assert sale["total_cop"] == 2 * 14000 - 1400
     assert sale["status"] == "claimed"
     assert prize_status(owner_conn, award_id) == "redeemed"
-    history = (await customer_client.get("/api/c/history")).json()
+    history = (await customer_client.get("/api/client/history")).json()
     assert history[0]["prize_used"] == "10% de descuento"
-    prize = (await customer_client.get(f"/api/c/prizes/{award_id}")).json()
+    prize = (await customer_client.get(f"/api/client/prizes/{award_id}")).json()
     assert prize["status"] == "redeemed"
 
 
@@ -130,7 +130,7 @@ async def test_f6_immediate_extra_on_paid_sale(
         owner, seeded, owner_conn, customer_client, rng, "Cold foam o topping extra"
     )
     r = await owner.post(
-        f"/api/op/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
+        f"/api/admin/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
     )
     assert r.status_code == 200, r.text
     sale = r.json()
@@ -148,7 +148,7 @@ async def test_f6_free_item_on_paid_sale(
     )
     berry = seeded.products["Berry Bliss"]
     r = await owner.post(
-        f"/api/op/sales/{sale_id}/redeem-prize",
+        f"/api/admin/sales/{sale_id}/redeem-prize",
         json={"prize_award_id": award_id, "product_id": str(berry)},
     )
     sale = r.json()
@@ -170,7 +170,7 @@ async def test_free_item_on_paid_sale_cap_below_price(
         owner, seeded, owner_conn, customer_client, rng, "Bebida gratis"
     )
     r = await owner.post(
-        f"/api/op/sales/{sale_id}/redeem-prize",
+        f"/api/admin/sales/{sale_id}/redeem-prize",
         json={
             "prize_award_id": award_id,
             "product_id": str(seeded.products["Berry Bliss"]),
@@ -189,7 +189,7 @@ async def test_f6_percent_off_on_paid_sale(
         owner, seeded, owner_conn, customer_client, rng, "10% de descuento"
     )
     r = await owner.post(
-        f"/api/op/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
+        f"/api/admin/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
     )
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "discount_needs_new_sale"
@@ -208,15 +208,15 @@ async def test_two_prizes_in_one_sale(owner, open_workday, seeded, owner_conn, r
             (seeded.business_id, customer_id, sale_id),
         ).fetchone()[0]
         owner_conn.commit()
-        second = (await c.post(f"/api/c/spins/{spin_id}/spin")).json()["prize_award"][
-            "id"
-        ]
+        second = (await c.post(f"/api/client/spins/{spin_id}/spin")).json()[
+            "prize_award"
+        ]["id"]
     r = await owner.post(
-        f"/api/op/sales/{sale_id}/redeem-prize", json={"prize_award_id": first}
+        f"/api/admin/sales/{sale_id}/redeem-prize", json={"prize_award_id": first}
     )
     assert r.status_code == 200
     r = await owner.post(
-        f"/api/op/sales/{sale_id}/redeem-prize", json={"prize_award_id": second}
+        f"/api/admin/sales/{sale_id}/redeem-prize", json={"prize_award_id": second}
     )
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "prize_already_in_sale"
@@ -230,7 +230,7 @@ async def test_prize_already_used(
         owner, seeded, owner_conn, customer_client, rng, "Cold foam o topping extra"
     )
     await owner.post(
-        f"/api/op/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
+        f"/api/admin/sales/{sale_id}/redeem-prize", json={"prize_award_id": award_id}
     )
     berry = seeded.products["Berry Bliss"]
     r = await sell(
@@ -312,7 +312,7 @@ async def test_redeem_needs_claimed_sale_in_open_workday(
     )
     anonymous = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
     r = await owner.post(
-        f"/api/op/sales/{anonymous['id']}/redeem-prize",
+        f"/api/admin/sales/{anonymous['id']}/redeem-prize",
         json={"prize_award_id": award_id},
     )
     assert r.json()["error"]["code"] == "sale_not_linkable"
@@ -330,7 +330,7 @@ async def test_pending_prizes_filters(owner, open_workday, seeded, owner_conn, r
     )
     owner_conn.commit()
 
-    all_ = (await owner.get("/api/op/prizes/pending")).json()
+    all_ = (await owner.get("/api/admin/prizes/pending")).json()
     assert [p["prize_name"] for p in all_] == ["10% de descuento", "Bebida gratis"]
     assert set(all_[0]) == {
         "prize_award_id",
@@ -342,19 +342,19 @@ async def test_pending_prizes_filters(owner, open_workday, seeded, owner_conn, r
         "awarded_at",
         "expires_at",
     }
-    free = (await owner.get("/api/op/prizes/pending?filter=free")).json()
+    free = (await owner.get("/api/admin/prizes/pending?filter=free")).json()
     assert [p["prize_name"] for p in free] == ["Bebida gratis"]
-    expiring = (await owner.get("/api/op/prizes/pending?filter=expiring")).json()
+    expiring = (await owner.get("/api/admin/prizes/pending?filter=expiring")).json()
     assert [p["prize_name"] for p in expiring] == ["10% de descuento"]
-    bad = await owner.get("/api/op/prizes/pending?filter=nope")
+    bad = await owner.get("/api/admin/prizes/pending?filter=nope")
     assert bad.json()["error"]["code"] == "validation_error"
 
 
 async def test_catalog_owner_only(owner, operator):
-    r = await operator.get("/api/op/prizes/catalog")
+    r = await operator.get("/api/admin/prizes/catalog")
     assert r.status_code == 403
     assert r.json()["error"]["code"] == "forbidden"
-    r = await owner.get("/api/op/prizes/catalog")
+    r = await owner.get("/api/admin/prizes/catalog")
     assert r.status_code == 200
     assert [p["weight"] for p in r.json()] == [40, 25, 20, 10, 5]
 
@@ -366,11 +366,11 @@ async def test_customer_detail_includes_prize_value_for_estimates(
     customer_id, award_id, _ = await customer_with_prize(
         owner, seeded, owner_conn, customer_client, rng, "10% de descuento"
     )
-    body = (await owner.get(f"/api/op/customers/{customer_id}")).json()
+    body = (await owner.get(f"/api/admin/customers/{customer_id}")).json()
     [prize] = body["active_prizes"]
     assert prize["id"] == award_id
     assert prize["value"] == 10
     assert prize["max_value_cop"] == 16000
     # The customer's own card does not expose catalog values.
-    card = (await customer_client.get("/api/c/me")).json()
+    card = (await customer_client.get("/api/client/me")).json()
     assert "value" not in card["active_prizes"][0]

@@ -51,7 +51,7 @@ def test_session_cookie_flags(monkeypatch, secure):
 
     monkeypatch.setattr(security.settings, "COOKIE_SECURE", secure)
     response = Response()
-    security.set_session_cookie(response, "c_session", "tok", 60)
+    security.set_session_cookie(response, "client_session", "tok", 60)
     cookie = response.headers["set-cookie"].lower()
     assert "httponly" in cookie
     assert "samesite=lax" in cookie
@@ -59,20 +59,22 @@ def test_session_cookie_flags(monkeypatch, secure):
     assert ("secure" in cookie) is secure
 
 
-# --- Every /api/op/* requires get_current_operator, except login ---------------------
-def op_routes():
+# --- Every /api/admin/* requires get_current_operator, except login ---------------------
+def admin_routes():
     # From the OpenAPI schema: this FastAPI version groups app.routes by router.
     for path, operations in app.openapi()["paths"].items():
-        if path.startswith("/api/op/") and path != "/api/op/auth/login":
+        if path.startswith("/api/admin/") and path != "/api/admin/auth/login":
             for method in operations:
                 yield method.upper(), path
 
 
 def test_op_routes_are_collected():
-    assert len(list(op_routes())) == 22  # 14.1: 23 operator routes minus login
+    assert (
+        len(list(admin_routes())) == 23
+    )  # 14.1: 23 operator routes minus login, + wheel editor
 
 
-@pytest.mark.parametrize(("method", "path"), sorted(op_routes()))
+@pytest.mark.parametrize(("method", "path"), sorted(admin_routes()))
 async def test_op_route_requires_operator(client, seeded, method, path):
     url = re.sub(r"\{[^}]+\}", str(uuid4()), path)
     r = await client.request(method, url, json={} if method == "POST" else None)
@@ -112,49 +114,54 @@ async def test_business_isolation(
             owner, seeded, owner_conn, ana, rng, "Cold foam o topping extra"
         )
     anonymous = (await sell(owner, [(berry, 1)])).json()["id"]
-    await other.post("/api/op/workdays/open")
+    await other.post("/api/admin/workdays/open")
 
     def code(r):
         return r.json()["error"]["code"]
 
-    assert code(await other.get(f"/api/op/sales/{sale_id}")) == "sale_not_found"
-    assert code(await other.get(f"/api/op/sales/{sale_id}/status")) == "sale_not_found"
+    assert code(await other.get(f"/api/admin/sales/{sale_id}")) == "sale_not_found"
+    assert (
+        code(await other.get(f"/api/admin/sales/{sale_id}/status")) == "sale_not_found"
+    )
     assert (
         code(
             await other.post(
-                f"/api/op/sales/{anonymous}/link", json={"customer_id": customer_id}
+                f"/api/admin/sales/{anonymous}/link", json={"customer_id": customer_id}
             )
         )
         == "sale_not_linkable"
     )
     assert (
-        code(await other.post(f"/api/op/sales/{sale_id}/unlink")) == "sale_not_linkable"
+        code(await other.post(f"/api/admin/sales/{sale_id}/unlink"))
+        == "sale_not_linkable"
     )
     assert (
         code(
-            await other.post(f"/api/op/sales/{sale_id}/void", json={"reason": "x" * 5})
+            await other.post(
+                f"/api/admin/sales/{sale_id}/void", json={"reason": "x" * 5}
+            )
         )
         == "sale_not_found"
     )
     assert (
         code(
             await other.post(
-                f"/api/op/sales/{sale_id}/redeem-prize",
+                f"/api/admin/sales/{sale_id}/redeem-prize",
                 json={"prize_award_id": award_id},
             )
         )
         == "sale_not_linkable"
     )
-    assert (await other.get("/api/op/customers/search?last4=4567")).json() == []
+    assert (await other.get("/api/admin/customers/search?last4=4567")).json() == []
     assert (
-        code(await other.get(f"/api/op/customers/{customer_id}"))
+        code(await other.get(f"/api/admin/customers/{customer_id}"))
         == "customer_not_found"
     )
     assert (
-        code(await other.get(f"/api/op/stats/workdays/{open_workday['id']}"))
+        code(await other.get(f"/api/admin/stats/workdays/{open_workday['id']}"))
         == "workday_not_found"
     )
-    assert (await other.get("/api/op/prizes/pending")).json() == []
+    assert (await other.get("/api/admin/prizes/pending")).json() == []
     assert code(await sell(other, [(berry, 1)])) == "product_invalid"
     other_product = owner_conn.execute(
         "SELECT p.id FROM product p JOIN business b ON b.id = p.business_id "
@@ -165,7 +172,7 @@ async def test_business_isolation(
         == "customer_not_found"
     )
     # Products listed are only the operator's own.
-    names_ids = {p["id"] for p in (await other.get("/api/op/products")).json()}
+    names_ids = {p["id"] for p in (await other.get("/api/admin/products")).json()}
     assert str(berry) not in names_ids
 
 
@@ -173,7 +180,7 @@ async def test_customer_cannot_claim_other_business_sale(
     seeded, owner_conn, other_business_operator, owner, open_workday
 ):
     other = other_business_operator
-    await other.post("/api/op/workdays/open")
+    await other.post("/api/admin/workdays/open")
     other_product = owner_conn.execute(
         "SELECT p.id FROM product p JOIN business b ON b.id = p.business_id "
         "WHERE b.slug = 'other-biz' LIMIT 1"
@@ -183,7 +190,8 @@ async def test_customer_cannot_claim_other_business_sale(
     async with make_client() as c:
         await register(c, claim_token(owner_conn, mine["id"]))
         r = await c.post(
-            "/api/c/claim", json={"claim_token": claim_token(owner_conn, foreign["id"])}
+            "/api/client/claim",
+            json={"claim_token": claim_token(owner_conn, foreign["id"])},
         )
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "claim_not_found"
@@ -195,17 +203,21 @@ async def test_customer_responses_never_show_full_phone(
 ):
     sale = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
     token = claim_token(owner_conn, sale["id"])
-    responses = [await customer_client.get(f"/api/c/claims/{token}")]
+    responses = [await customer_client.get(f"/api/client/claims/{token}")]
     responses.append(await register(customer_client, token))
     spin_id = responses[-1].json()["new_spins"][0]["id"]
-    responses.append(await customer_client.post(f"/api/c/spins/{spin_id}/spin"))
+    responses.append(await customer_client.post(f"/api/client/spins/{spin_id}/spin"))
     award_id = responses[-1].json()["prize_award"]["id"]
-    for path in ("/api/c/me", "/api/c/history", f"/api/c/prizes/{award_id}"):
+    for path in (
+        "/api/client/me",
+        "/api/client/history",
+        f"/api/client/prizes/{award_id}",
+    ):
         responses.append(await customer_client.get(path))
     # The operator side also only shows the last 4 digits.
-    responses.append(await owner.get(f"/api/op/sales/{sale['id']}/status"))
-    responses.append(await owner.get("/api/op/customers/search?last4=4567"))
-    responses.append(await owner.get("/api/op/prizes/pending"))
+    responses.append(await owner.get(f"/api/admin/sales/{sale['id']}/status"))
+    responses.append(await owner.get("/api/admin/customers/search?last4=4567"))
+    responses.append(await owner.get("/api/admin/prizes/pending"))
     for r in responses:
         assert r.status_code == 200, r.text
         assert "3101234567" not in r.text
@@ -218,11 +230,13 @@ async def test_weights_never_in_customer_endpoints(
 ):
     sale = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
     body = (await register(customer_client, claim_token(owner_conn, sale["id"]))).json()
-    spin = await customer_client.post(f"/api/c/spins/{body['new_spins'][0]['id']}/spin")
+    spin = await customer_client.post(
+        f"/api/client/spins/{body['new_spins'][0]['id']}/spin"
+    )
     for r in (
         spin,
-        await customer_client.get("/api/c/wheel"),
-        await customer_client.get("/api/c/me"),
+        await customer_client.get("/api/client/wheel"),
+        await customer_client.get("/api/client/me"),
     ):
         assert "weight" not in r.text
 
@@ -237,7 +251,7 @@ async def test_unhandled_error_hides_details(monkeypatch, seeded):
     monkeypatch.setattr(prizes, "active_catalog", boom)
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        r = await c.get("/api/c/wheel")
+        r = await c.get("/api/client/wheel")
     assert r.status_code == 500
     assert r.json() == {
         "error": {
@@ -357,10 +371,10 @@ async def test_docs_enabled_outside_production(client):
 async def test_login_rate_limit_per_ip(client, seeded):
     for i in range(20):
         await client.post(
-            "/api/op/auth/login", json={"email": f"u{i}@test.local", "password": "x"}
+            "/api/admin/auth/login", json={"email": f"u{i}@test.local", "password": "x"}
         )
     r = await client.post(
-        "/api/op/auth/login", json={"email": "u99@test.local", "password": "x"}
+        "/api/admin/auth/login", json={"email": "u99@test.local", "password": "x"}
     )
     assert r.status_code == 429
 
@@ -369,13 +383,13 @@ async def test_rate_limit_uses_first_forwarded_ip(seeded):
     async with make_client() as c:
         for _ in range(20):
             await c.post(
-                "/api/op/auth/login",
+                "/api/admin/auth/login",
                 json={"email": "a@test.local", "password": "x"},
                 headers={"X-Forwarded-For": "1.1.1.1, 10.0.0.1"},
             )
         # Another client IP (first value) is not affected.
         r = await c.post(
-            "/api/op/auth/login",
+            "/api/admin/auth/login",
             json={"email": "b@test.local", "password": "x"},
             headers={"X-Forwarded-For": "2.2.2.2, 10.0.0.1"},
         )
@@ -385,19 +399,20 @@ async def test_rate_limit_uses_first_forwarded_ip(seeded):
 async def test_identify_rate_limit_per_ip(customer_client, seeded):
     for i in range(10):
         await customer_client.post(
-            "/api/c/identify/confirm",
+            "/api/client/identify/confirm",
             json={"phone": "3101234567", "claim_token": f"t{i}"},
         )
     r = await customer_client.post(
-        "/api/c/identify/confirm", json={"phone": "3101234567", "claim_token": "t99"}
+        "/api/client/identify/confirm",
+        json={"phone": "3101234567", "claim_token": "t99"},
     )
     assert r.status_code == 429
 
 
 async def test_claim_preview_rate_limit(customer_client, seeded):
     for i in range(30):
-        await customer_client.get(f"/api/c/claims/t{i}")
-    assert (await customer_client.get("/api/c/claims/t99")).status_code == 429
+        await customer_client.get(f"/api/client/claims/t{i}")
+    assert (await customer_client.get("/api/client/claims/t99")).status_code == 429
 
 
 # --- Prices never accepted from the frontend (also in test_sales) ---------------------
@@ -412,7 +427,8 @@ def test_sale_input_schema_has_no_prices():
 async def test_no_customer_lookup_without_token(customer_client, seeded, owner_conn):
     make_customer(owner_conn, seeded.business_id)
     r = await customer_client.post(
-        "/api/c/identify/confirm", json={"phone": "3101234567", "claim_token": "bogus"}
+        "/api/client/identify/confirm",
+        json={"phone": "3101234567", "claim_token": "bogus"},
     )
     # Does not reveal that the customer exists.
     assert r.json()["error"]["code"] == "claim_not_found"
@@ -438,20 +454,20 @@ def swagger_like_client(origin: str = ORIGIN) -> httpx.AsyncClient:
 async def test_bodyless_post_without_content_type_is_allowed(seeded):
     async with swagger_like_client() as c:
         r = await c.post(
-            "/api/op/auth/login",
+            "/api/admin/auth/login",
             json={"email": "owner@test.local", "password": PASSWORD},
         )
         assert r.status_code == 200
-        r = await c.post("/api/op/workdays/open")  # no body, no Content-Type
+        r = await c.post("/api/admin/workdays/open")  # no body, no Content-Type
         assert r.status_code == 201, r.text
-        r = await c.post("/api/op/auth/logout")
+        r = await c.post("/api/admin/auth/logout")
         assert r.status_code == 204
-        assert (await c.get("/api/op/auth/me")).status_code == 401
+        assert (await c.get("/api/admin/auth/me")).status_code == 401
 
 
 async def test_bodyless_post_from_foreign_origin_is_blocked(seeded):
     async with swagger_like_client("https://evil.example") as c:
-        r = await c.post("/api/op/auth/logout")
+        r = await c.post("/api/admin/auth/logout")
     assert r.status_code == 403
     assert r.json()["error"]["code"] == "forbidden_origin"
 
@@ -463,7 +479,7 @@ async def test_post_with_body_requires_json(seeded, content_type):
     headers = {"Content-Type": content_type} if content_type else {}
     async with swagger_like_client() as c:
         r = await c.post(
-            "/api/op/auth/login",
+            "/api/admin/auth/login",
             content=b'{"email": "owner@test.local", "password": "x"}',
             headers=headers,
         )

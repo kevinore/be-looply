@@ -12,7 +12,8 @@ from app.core.security import (
 )
 from app.core.time import now_utc
 from app.models import CustomerSession
-from app.schemas.c import (
+from app.schemas.card import CardOut, ClaimResultOut
+from app.schemas.client import (
     ClaimIn,
     ClaimPreviewOut,
     HistorySale,
@@ -20,11 +21,10 @@ from app.schemas.c import (
     PublicBusinessOut,
     RegisterIn,
 )
-from app.schemas.card import CardOut, ClaimResultOut
 from app.services import claims, customers
 from app.services.claims import ClaimResult
 
-router = APIRouter(prefix="/api/c", tags=["c: identity"])
+router = APIRouter(prefix="/api/client", tags=["client: identity"])
 
 COOKIE_MAX_AGE = CUSTOMER_SESSION_DAYS * 24 * 3600
 
@@ -40,9 +40,11 @@ def claim_result_out(result: ClaimResult) -> dict:
 
 def limit_customer_auth(request: Request, claim_token: str) -> None:
     rate_limit.enforce(
-        rate_limit.CUSTOMER_AUTH_PER_IP, "c_auth_ip", rate_limit.client_ip(request)
+        rate_limit.CUSTOMER_AUTH_PER_IP, "client_auth_ip", rate_limit.client_ip(request)
     )
-    rate_limit.enforce(rate_limit.CUSTOMER_AUTH_PER_TOKEN, "c_auth_token", claim_token)
+    rate_limit.enforce(
+        rate_limit.CUSTOMER_AUTH_PER_TOKEN, "client_auth_token", claim_token
+    )
 
 
 @router.get("/business", response_model=PublicBusinessOut)
@@ -58,7 +60,9 @@ async def business(biz: PublicBusiness):
 @router.get("/claims/{token}", response_model=ClaimPreviewOut)
 async def claim_preview(token: str, request: Request, db: DbSession):
     rate_limit.enforce(
-        rate_limit.CLAIM_PREVIEW_PER_IP, "c_preview_ip", rate_limit.client_ip(request)
+        rate_limit.CLAIM_PREVIEW_PER_IP,
+        "client_preview_ip",
+        rate_limit.client_ip(request),
     )
     return await claims.claim_preview(db, token)
 

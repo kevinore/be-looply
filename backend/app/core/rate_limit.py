@@ -7,10 +7,12 @@ from app.core.errors import AppError
 # Section 10.6
 LOGIN_PER_EMAIL = "5/15minutes"
 LOGIN_PER_IP = "20/15minutes"
-CUSTOMER_AUTH_PER_IP = "10/10minutes"  # /api/c/register, /api/c/identify/confirm
+CUSTOMER_AUTH_PER_IP = (
+    "10/10minutes"  # /api/client/register, /api/client/identify/confirm
+)
 CUSTOMER_AUTH_PER_TOKEN = "5/10minutes"
-CLAIM_PREVIEW_PER_IP = "30/minute"  # GET /api/c/claims/{token}
-EVENTS_PER_IP = "60/minute"  # POST /api/c/events, /api/op/events
+CLAIM_PREVIEW_PER_IP = "30/minute"  # GET /api/client/claims/{token}
+EVENTS_PER_IP = "60/minute"  # POST /api/client/events, /api/admin/events
 
 
 def client_ip(request: Request) -> str:

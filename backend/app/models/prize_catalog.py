@@ -16,6 +16,8 @@ class PrizeCatalog(Base):
     type: Mapped[str] = mapped_column(Text)
     value: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     max_value_cop: Mapped[int | None] = mapped_column(Integer)
+    # R17: only products of this category take the prize; NULL = any category.
+    category_id: Mapped[UUID | None] = mapped_column(ForeignKey("product_category.id"))
     weight: Mapped[int] = mapped_column(Integer)
     expires_days: Mapped[int] = mapped_column(SmallInteger, server_default=text("90"))
     color: Mapped[str | None] = mapped_column(Text)

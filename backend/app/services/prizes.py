@@ -8,9 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import for_update
 from app.core.errors import AppError
 from app.core.time import now_utc
-from app.models import Operator, PrizeAward, PrizeCatalog, Product, Sale, SaleItem
+from app.models import (
+    Operator,
+    PrizeAward,
+    PrizeCatalog,
+    Product,
+    ProductCategory,
+    Sale,
+    SaleItem,
+)
+from app.schemas.prize import WheelPrizeIn
 from app.services import options
-from app.services.events import emit_event
+from app.services.events import emit_event, jsonable
 
 
 async def lock_valid_prize(
@@ -38,7 +47,7 @@ async def lock_valid_prize(
 
 
 def unit_discount(prize: PrizeCatalog, price: int) -> int:
-    """R17: over one unit of a drink, capped by max_value_cop."""
+    """R17: over one unit of a product, capped by max_value_cop."""
     cap = prize.max_value_cop or price
     if prize.type == "percent_off":
         return min(round(price * prize.value / 100), cap)
@@ -113,18 +122,25 @@ async def sale_has_redeemed_prize(db: AsyncSession, sale_id: UUID) -> bool:
     ).scalar()
 
 
-async def sale_has_prize_eligible_product(db: AsyncSession, sale_id: UUID) -> bool:
-    return (
-        await db.execute(
-            select(
-                exists().where(
-                    SaleItem.sale_id == sale_id,
-                    SaleItem.product_id == Product.id,
-                    Product.prize_eligible.is_(True),
-                )
-            )
-        )
-    ).scalar()
+def applies_to(prize: PrizeCatalog, product: Product) -> bool:
+    """R17: the product takes prizes and is in the prize's category (if it has one)."""
+    return product.prize_eligible and (
+        prize.category_id is None or product.category_id == prize.category_id
+    )
+
+
+async def sale_has_product_for(
+    db: AsyncSession, sale_id: UUID, prize: PrizeCatalog
+) -> bool:
+    """Whether the sale has a product the prize applies to (see applies_to)."""
+    conditions = [
+        SaleItem.sale_id == sale_id,
+        SaleItem.product_id == Product.id,
+        Product.prize_eligible.is_(True),
+    ]
+    if prize.category_id is not None:
+        conditions.append(Product.category_id == prize.category_id)
+    return (await db.execute(select(exists().where(*conditions)))).scalar()
 
 
 async def redeem_on_paid_sale(
@@ -158,7 +174,7 @@ async def redeem_on_paid_sale(
         ).scalar_one_or_none()
         if product is None:
             raise AppError("product_invalid")
-        if not product.prize_eligible:  # R17
+        if not applies_to(prize, product):  # R17
             raise AppError("prize_target_invalid")
         groups = await options.product_groups(db, [product.id])
         chosen = options.resolve_choices(groups.get(product.id, []), option_ids or [])
@@ -178,8 +194,8 @@ async def redeem_on_paid_sale(
             prize_award_id=award.id,
         )
     else:  # extra_item
-        # R17: it goes with a product that takes prizes, so the sale needs one.
-        if not await sale_has_prize_eligible_product(db, sale.id):
+        # R17: it goes with a product that takes this prize, so the sale needs one.
+        if not await sale_has_product_for(db, sale.id, prize):
             raise AppError("prize_target_invalid")
         item = SaleItem(
             sale_id=sale.id,
@@ -240,15 +256,149 @@ async def pending_prizes(
     return [dict(r) for r in (await db.execute(text(sql), params)).mappings()]
 
 
-async def catalog(db: AsyncSession, business_id: UUID) -> list[PrizeCatalog]:
-    return list(
+async def catalog(db: AsyncSession, business_id: UUID) -> list[dict]:
+    """Every prize of the business (owner only: includes weights), in wheel order."""
+    prizes = (
+        await db.execute(
+            select(PrizeCatalog)
+            .where(PrizeCatalog.business_id == business_id)
+            .order_by(PrizeCatalog.sort_order, PrizeCatalog.name)
+        )
+    ).scalars()
+    awarded = await awarded_prize_ids(db, business_id)
+    return [{**_snapshot(p), "awarded": p.id in awarded} for p in prizes]
+
+
+async def awarded_prize_ids(db: AsyncSession, business_id: UUID) -> set[UUID]:
+    """Prizes won at least once (any status): their reward can no longer change."""
+    return set(
         (
             await db.execute(
-                select(PrizeCatalog)
-                .where(PrizeCatalog.business_id == business_id)
-                .order_by(PrizeCatalog.sort_order, PrizeCatalog.name)
+                select(PrizeAward.prize_id)
+                .where(PrizeAward.business_id == business_id)
+                .distinct()
             )
         ).scalars()
+    )
+
+
+# Wheel editor. Weights are hundredths of a percent: the active prizes add up to
+# exactly 100% (10 000). The draw only needs relative weights, so older catalogs
+# with other totals keep working until they are saved from the editor.
+WHEEL_TOTAL = 10_000
+MIN_ACTIVE_PRIZES = 2
+MAX_ACTIVE_PRIZES = 12
+# What a customer holds once won: never changed afterwards (retire + create instead).
+REWARD_FIELDS = ("type", "value", "max_value_cop", "category_id")
+
+
+def _snapshot(p: PrizeCatalog) -> dict:
+    return {
+        "id": p.id,
+        "name": p.name,
+        "short_label": p.short_label,
+        "type": p.type,
+        "value": p.value,
+        "max_value_cop": p.max_value_cop,
+        "category_id": p.category_id,
+        "weight": p.weight,
+        "expires_days": p.expires_days,
+        "color": p.color,
+        "sort_order": p.sort_order,
+        "active": p.active,
+    }
+
+
+def _wheel_values(item: WheelPrizeIn, sort_order: int) -> dict:
+    """Editor row -> prize_catalog columns, with the reward normalized by type."""
+    if item.type == "percent_off" and not 1 <= item.value <= 100:
+        raise AppError("validation_error")
+    return {
+        "name": item.name,
+        "short_label": item.short_label,
+        "type": item.type,
+        # Only percent_off uses `value`; extra_item is never capped (R17).
+        "value": item.value if item.type == "percent_off" else 0,
+        "max_value_cop": None if item.type == "extra_item" else item.max_value_cop,
+        "category_id": item.category_id,
+        "weight": item.weight,
+        "expires_days": item.expires_days,
+        "color": item.color,
+        "sort_order": sort_order,
+        "active": item.active,
+    }
+
+
+async def save_wheel(
+    db: AsyncSession, business_id: UUID, operator: Operator, items: list[WheelPrizeIn]
+) -> None:
+    """Replace the wheel in one transaction (owner only). Nothing is deleted (R19).
+
+    `items` lists every prize of the business in display order; prizes without an
+    id are created. A prize already won keeps its reward (REWARD_FIELDS).
+    """
+    current = {
+        p.id: p
+        for p in (
+            await db.execute(
+                for_update(
+                    select(PrizeCatalog).where(PrizeCatalog.business_id == business_id)
+                )
+            )
+        ).scalars()
+    }
+    ids = [i.id for i in items if i.id is not None]
+    # Every existing prize, once: leaving one out must not silently retire it.
+    if len(ids) != len(set(ids)) or set(ids) != set(current):
+        raise AppError("validation_error")
+    names = [i.name.casefold() for i in items]
+    if len(names) != len(set(names)):
+        raise AppError("prize_name_taken")
+    rows = [_wheel_values(item, order) for order, item in enumerate(items, start=1)]
+    active = [r for r in rows if r["active"]]
+    if not MIN_ACTIVE_PRIZES <= len(active) <= MAX_ACTIVE_PRIZES:
+        raise AppError("wheel_size_invalid")
+    if sum(r["weight"] for r in active) != WHEEL_TOTAL:
+        raise AppError("wheel_total_invalid")
+    # R21: a prize can only point to a category of its own business.
+    wanted = {r["category_id"] for r in rows} - {None}
+    if wanted:
+        found = set(
+            (
+                await db.execute(
+                    select(ProductCategory.id).where(
+                        ProductCategory.id.in_(wanted),
+                        ProductCategory.business_id == business_id,
+                    )
+                )
+            ).scalars()
+        )
+        if found != wanted:
+            raise AppError("validation_error")
+
+    awarded = await awarded_prize_ids(db, business_id)
+    before = [jsonable(_snapshot(p)) for p in current.values()]
+    for item, values in zip(items, rows, strict=True):
+        if item.id is None:
+            db.add(PrizeCatalog(business_id=business_id, **values))
+            continue
+        prize = current[item.id]
+        if prize.id in awarded and any(
+            getattr(prize, f) != values[f] for f in REWARD_FIELDS
+        ):
+            raise AppError("prize_locked", extra={"prize_id": str(prize.id)})
+        for key, value in values.items():
+            setattr(prize, key, value)
+    await db.flush()
+
+    after = await catalog(db, business_id)
+    await emit_event(
+        db,
+        business_id=business_id,
+        type="prize_catalog_updated",
+        actor="operator",
+        actor_id=operator.id,
+        payload={"before": before, "after": [jsonable(p) for p in after]},
     )
 
 

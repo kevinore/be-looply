@@ -43,7 +43,7 @@ def has_body(request: Request) -> bool:
 
 
 async def get_current_operator(request: Request, db: DbSession) -> OperatorContext:
-    """Required by every /api/op/* endpoint except login (11.1)."""
+    """Required by every /api/admin/* endpoint except login (11.1)."""
     token = request.cookies.get(OPERATOR_COOKIE)
     if not token:
         raise AppError("not_authenticated")
@@ -70,7 +70,7 @@ CurrentOwner = Annotated[OperatorContext, Depends(require_owner)]
 async def get_optional_customer(
     request: Request, db: DbSession
 ) -> CustomerContext | None:
-    """Customer from the c_session cookie, or None (endpoints open to anonymous use)."""
+    """Customer from the client_session cookie, or None (endpoints open to anonymous use)."""
     token = request.cookies.get(CUSTOMER_COOKIE)
     if not token:
         return None

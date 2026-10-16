@@ -5,7 +5,7 @@ from app.core.db import DbSession
 from app.schemas.product import ProductOut
 from app.services import options
 
-router = APIRouter(prefix="/api/op/products", tags=["op: products"])
+router = APIRouter(prefix="/api/admin/products", tags=["admin: products"])
 
 
 @router.get("", response_model=list[ProductOut])

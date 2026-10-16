@@ -16,21 +16,21 @@ async def day_of_sales(owner, seeded, owner_conn):
     async with make_client() as c:
         await register(c, claim_token(owner_conn, claimed["id"]))
     voided = (await sell(owner, [(berry, 5)])).json()
-    await owner.post(f"/api/op/sales/{voided['id']}/void", json={"reason": "error"})
+    await owner.post(f"/api/admin/sales/{voided['id']}/void", json={"reason": "error"})
 
 
 async def test_f7_workday(owner, weather_api, seeded, owner_conn, customer_client):
     """F7: open (fake weather) -> sell -> close -> pending QR expired -> summary."""
-    workday = (await owner.post("/api/op/workdays/open")).json()
+    workday = (await owner.post("/api/admin/workdays/open")).json()
     assert workday["weather_temp_c"] == 18.4
     await day_of_sales(owner, seeded, owner_conn)
     pending = (await sell(owner, [(seeded.products["Berry Bliss"], 1)])).json()
     token = claim_token(owner_conn, pending["id"])
-    assert (await customer_client.get(f"/api/c/claims/{token}")).json()[
+    assert (await customer_client.get(f"/api/client/claims/{token}")).json()[
         "state"
     ] == "claimable"
 
-    summary = (await owner.post("/api/op/workdays/current/close")).json()
+    summary = (await owner.post("/api/admin/workdays/current/close")).json()
     assert summary == {
         **summary,
         "workday_id": workday["id"],
@@ -43,7 +43,7 @@ async def test_f7_workday(owner, weather_api, seeded, owner_conn, customer_clien
         "drinks": 4,
         "weather_temp_c": 18.4,
     }
-    assert (await customer_client.get(f"/api/c/claims/{token}")).json()[
+    assert (await customer_client.get(f"/api/client/claims/{token}")).json()[
         "state"
     ] == "expired"
     r = await register(customer_client, token)
@@ -55,7 +55,7 @@ async def test_f7_workday(owner, weather_api, seeded, owner_conn, customer_clien
 
 async def test_workday_stats(owner, open_workday, seeded, owner_conn):
     await day_of_sales(owner, seeded, owner_conn)
-    r = await owner.get(f"/api/op/stats/workdays/{open_workday['id']}")
+    r = await owner.get(f"/api/admin/stats/workdays/{open_workday['id']}")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["summary"]["sales"] == 2
@@ -82,18 +82,18 @@ async def test_stats_without_cost_hide_margin(owner, open_workday, seeded, owner
     owner_conn.execute("UPDATE product SET cost_cop = NULL WHERE name = 'Berry Bliss'")
     owner_conn.commit()
     await sell(owner, [(seeded.products["Berry Bliss"], 1)])
-    body = (await owner.get(f"/api/op/stats/workdays/{open_workday['id']}")).json()
+    body = (await owner.get(f"/api/admin/stats/workdays/{open_workday['id']}")).json()
     assert body["cost_incomplete"] is True
     assert body["margin_cop"] is None
     assert body["top_products"][0]["margin_cop"] is None
 
 
 async def test_workday_stats_empty_and_unknown(owner, open_workday):
-    body = (await owner.get(f"/api/op/stats/workdays/{open_workday['id']}")).json()
+    body = (await owner.get(f"/api/admin/stats/workdays/{open_workday['id']}")).json()
     assert body["summary"]["drinks_per_sale"] == 0
     assert body["summary"]["claimed_pct"] == 0
     assert body["best_hour"] is None
-    r = await owner.get(f"/api/op/stats/workdays/{uuid4()}")
+    r = await owner.get(f"/api/admin/stats/workdays/{uuid4()}")
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "workday_not_found"
 
@@ -101,73 +101,73 @@ async def test_workday_stats_empty_and_unknown(owner, open_workday):
 async def test_history_stats(owner, open_workday, seeded, owner_conn):
     await day_of_sales(owner, seeded, owner_conn)
     today = local_today("America/Bogota").isoformat()
-    body = (await owner.get(f"/api/op/stats/history?from={today}&to={today}")).json()
+    body = (await owner.get(f"/api/admin/stats/history?from={today}&to={today}")).json()
     assert [w["workday_id"] for w in body["workdays"]] == [open_workday["id"]]
     assert body["products"][0]["label"] == "Berry Bliss"
     assert body["hourly_average"][0]["avg_sales"] == 2
-    r = await owner.get("/api/op/stats/history?from=2026-10-10&to=2026-10-01")
+    r = await owner.get("/api/admin/stats/history?from=2026-10-10&to=2026-10-01")
     assert r.json()["error"]["code"] == "validation_error"
 
 
 async def test_export_csv(owner, operator, open_workday, seeded, owner_conn):
     await day_of_sales(owner, seeded, owner_conn)
     today = local_today("America/Bogota").isoformat()
-    r = await owner.get(f"/api/op/export/sales.csv?from={today}&to={today}")
+    r = await owner.get(f"/api/admin/export/sales.csv?from={today}&to={today}")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
     rows = list(csv.DictReader(io.StringIO(r.text)))
     assert len(rows) == 3  # one per sale line, void sale included
     assert sorted(row["status"] for row in rows) == ["claimed", "paid", "void"]
     assert "phone" not in r.text
-    r = await operator.get(f"/api/op/export/sales.csv?from={today}&to={today}")
+    r = await operator.get(f"/api/admin/export/sales.csv?from={today}&to={today}")
     assert r.status_code == 403
 
 
 async def test_customer_events(customer_client, seeded, owner_conn):
     r = await customer_client.post(
-        "/api/c/events",
+        "/api/client/events",
         json={"type": "page_loaded", "payload": {"load_ms": 1400}, "client_ts": None},
     )
     assert r.status_code == 204
     row = owner_conn.execute("SELECT actor, actor_id, payload FROM event").fetchone()
     assert row == ("customer", None, {"load_ms": 1400})
 
-    r = await customer_client.post("/api/c/events", json={"type": "sale_qr_shown"})
+    r = await customer_client.post("/api/client/events", json={"type": "sale_qr_shown"})
     assert r.json()["error"]["code"] == "validation_error"
-    r = await customer_client.post("/api/c/events", json={"type": "sale_claimed"})
+    r = await customer_client.post("/api/client/events", json={"type": "sale_claimed"})
     assert r.json()["error"]["code"] == "validation_error"
     r = await customer_client.post(
-        "/api/c/events", json={"type": "page_loaded", "payload": {"x": "a" * 2100}}
+        "/api/client/events", json={"type": "page_loaded", "payload": {"x": "a" * 2100}}
     )
     assert r.json()["error"]["code"] == "validation_error"
 
 
 async def test_operator_events(owner, owner_conn, seeded):
-    r = await owner.post("/api/op/events", json={"type": "sale_qr_shown"})
+    r = await owner.post("/api/admin/events", json={"type": "sale_qr_shown"})
     assert r.status_code == 204
     actor = owner_conn.execute(
         "SELECT actor, actor_id FROM event WHERE type = 'sale_qr_shown'"
     ).fetchone()
     assert actor == ("operator", seeded.owner_id)
-    r = await owner.post("/api/op/events", json={"type": "page_loaded"})
+    r = await owner.post("/api/admin/events", json={"type": "page_loaded"})
     assert r.json()["error"]["code"] == "validation_error"
 
 
 async def test_events_rate_limit(customer_client, seeded):
     for _ in range(60):
-        await customer_client.post("/api/c/events", json={"type": "page_loaded"})
-    r = await customer_client.post("/api/c/events", json={"type": "page_loaded"})
+        await customer_client.post("/api/client/events", json={"type": "page_loaded"})
+    r = await customer_client.post("/api/client/events", json={"type": "page_loaded"})
     assert r.status_code == 429
 
 
 async def test_post_with_foreign_origin(owner, seeded):
     """13.3: POST with a foreign Origin -> 403."""
     r = await owner.post(
-        "/api/op/workdays/open", headers={"Origin": "https://evil.example"}
+        "/api/admin/workdays/open", headers={"Origin": "https://evil.example"}
     )
     assert r.status_code == 403
     assert r.json()["error"]["code"] == "forbidden_origin"
     r = await owner.post(
-        "/api/op/workdays/open", headers={"Content-Type": "text/plain"}, content="x"
+        "/api/admin/workdays/open", headers={"Content-Type": "text/plain"}, content="x"
     )
     assert r.status_code == 403
